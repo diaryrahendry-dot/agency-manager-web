@@ -1485,6 +1485,50 @@ export const appRouter = router({
       });
       return { success: true };
     }),
+    updateClient: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      companyName: z.string().trim().min(1),
+      contactName: z.string().trim().min(1),
+      email: z.string().email(),
+      phone: z.string().optional(),
+      address: z.string().optional(),
+      industry: z.string().optional(),
+      category: z.string().trim().min(1),
+      notes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const { id, ...values } = input;
+      await database.update(clients).set({
+        companyName: values.companyName,
+        contactName: values.contactName,
+        email: values.email,
+        phone: values.phone || null,
+        address: values.address || null,
+        industry: values.industry || null,
+        category: values.category,
+        notes: values.notes || null,
+      } as any).where(and(eq(clients.id, id), projectScope(clients.projectId, ctx.user.activeProjectId)));
+      return { success: true };
+    }),
+    clientHistory: protectedProcedure.input(z.object({ clientId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) return { quotes: [], invoices: [], creditNotes: [], interactions: [], documents: [] };
+      const [allQuotes, allInvoices, allCreditNotes, allInteractions, allDocs] = await Promise.all([
+        database.select().from(quotes).where(and(eq(quotes.clientId, input.clientId), projectScope(quotes.projectId, ctx.user.activeProjectId))),
+        database.select().from(invoices).where(and(eq(invoices.clientId, input.clientId), projectScope(invoices.projectId, ctx.user.activeProjectId))),
+        database.select().from(creditNotes).where(and(eq(creditNotes.clientId, input.clientId), projectScope(creditNotes.projectId, ctx.user.activeProjectId))),
+        database.select().from(clientInteractions).where(eq(clientInteractions.clientId, input.clientId)),
+        database.select().from(documents).where(eq(documents.entityId, input.clientId)),
+      ]);
+      return {
+        quotes: allQuotes,
+        invoices: allInvoices,
+        creditNotes: allCreditNotes,
+        interactions: allInteractions,
+        documents: allDocs,
+      };
+    }),
     listInteractions: protectedProcedure.query(async () => {
       return await db.getClientInteractions();
     }),

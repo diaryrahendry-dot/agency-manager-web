@@ -186,3 +186,8 @@
 - [x] Créer les procédures tRPC `billing.createCreditNote`, `billing.listCreditNotes` et `accounting.convertCreditNoteToTransaction`
 - [x] Intégrer le bouton de création d’avoir et la liste des avoirs dans l’interface Facturation
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [ ] Ajouter la procédure d’édition des informations client et l’historique des factures/documents associés
+- [ ] Intégrer le sélecteur de prestations du catalogue dans la création de facture aux côtés de la saisie manuelle
+- [ ] Refondre la vue Base Client avec des cartes individuelles, édition rapide et historique détaillé par client
+- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
