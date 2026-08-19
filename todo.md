@@ -187,7 +187,12 @@
 - [x] Intégrer le bouton de création d’avoir et la liste des avoirs dans l’interface Facturation
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
 
-- [ ] Ajouter la procédure d’édition des informations client et l’historique des factures/documents associés
-- [ ] Intégrer le sélecteur de prestations du catalogue dans la création de facture aux côtés de la saisie manuelle
-- [ ] Refondre la vue Base Client avec des cartes individuelles, édition rapide et historique détaillé par client
-- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+- [x] Ajouter la procédure d’édition des informations client et l’historique des factures/documents associés
+- [x] Intégrer le sélecteur de prestations du catalogue dans la création de facture aux côtés de la saisie manuelle
+- [x] Refondre la vue Base Client avec des cartes individuelles, édition rapide et historique détaillé par client
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Ajouter la procédure tRPC `accounting.convertAdvanceToTransaction` pour convertir une avance validée en sortie de caisse
+- [x] Intégrer la carte de gestion des avances dans le planning superviseur avec le bouton de sortie de caisse
+- [x] Valider la synchronisation du statut RH et l’enregistrement comptable
+- [x] Vérifier avec les tests unitaires Vitest, TypeScript et un checkpoint final

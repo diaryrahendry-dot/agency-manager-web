@@ -816,6 +816,39 @@ export const appRouter = router({
       await database.update(creditNotes).set({ status: "converti_caisse" }).where(and(eq(creditNotes.id, input.creditNoteId), projectScope(creditNotes.projectId, ctx.user.activeProjectId)));
       return { success: true, creditNoteNumber: cn.creditNoteNumber, ...normalized };
     }),
+    convertAdvanceToTransaction: supervisorProcedure.input(z.object({
+      advanceId: z.number().int().positive(),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      exchangeRate: z.string().trim().optional(),
+      paymentMethod: z.string().trim().min(1).default("Virement / Décaissement"),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const advRows = await database.select().from(salaryAdvances).where(eq(salaryAdvances.id, input.advanceId)).limit(1);
+      const adv = advRows[0];
+      if (!adv) throw new Error("Demande d'avance introuvable");
+      if (adv.status !== "accordé") throw new Error("Seules les avances accordées et validées par le superviseur peuvent être décaissées en caisse");
+      const existingTransactions = await db.getCashTransactions(ctx.user.activeProjectId);
+      const ref = `AVANCE-AG-${adv.id}`;
+      if (existingTransactions.some(t => t.reference === ref)) {
+        throw new Error("Cette avance a déjà été enregistrée comme sortie de caisse");
+      }
+      const rate = input.exchangeRate ?? String(DEFAULT_EUR_TO_MGA);
+      const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(adv.amount), Number(rate))) : String(adv.amount);
+      const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
+      await database.insert(cashTransactions).values({
+        projectId: ctx.user.activeProjectId,
+        type: "sortie",
+        category: "Avance sur salaire",
+        ...normalized,
+        date: new Date().toISOString().slice(0, 10),
+        paymentMethod: input.paymentMethod,
+        reference: ref,
+        description: `Décaissement de l'avance sur salaire pour l'agent #${adv.agentId}`,
+      } as any);
+      await database.update(salaryAdvances).set({ status: "déduit" }).where(eq(salaryAdvances.id, input.advanceId));
+      return { success: true, reference: ref, ...normalized };
+    }),
     summary: protectedProcedure.query(async ({ ctx }) => {
       const database = await db.getDb();
       if (!database) return { totalEntrees: 0, totalSorties: 0, solde: 0, transactionsCount: 0, hidden: false };

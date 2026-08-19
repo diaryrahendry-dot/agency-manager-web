@@ -52,4 +52,15 @@ describe("AgencyManager Pro - statistiques dynamiques et Budget Planner", () => 
     expect(homeSource).toContain("Convertir en sortie de caisse");
     expect(homeSource).toContain("itemsJson");
   });
+
+  it("expose le décaissement des avances dans le planning superviseur", () => {
+    const homeSource = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
+    expect(appRouter._def.procedures).toHaveProperty("accounting.convertAdvanceToTransaction");
+    expect(homeSource).toContain("Planning superviseur · Avances");
+    expect(homeSource).toContain("convertAdvanceToTransactionMutation");
+    expect(homeSource).toContain("handleConvertAdvanceToTransaction");
+    expect(homeSource).toContain("Sortie de caisse");
+    expect(homeSource).toContain('advance.status === "accordé"');
+    expect(homeSource).toContain('currency: "MGA"');
+  });
 });

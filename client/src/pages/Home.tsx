@@ -577,6 +577,19 @@ export default function Home() {
     onError: (err) => toast.error("Impossible d’enregistrer l’avance : " + err.message),
   });
 
+  const convertAdvanceToTransactionMutation = trpc.accounting.convertAdvanceToTransaction.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Avance enregistrée en sortie de caisse (${result.currency}).`);
+      utils.hr.listSalaryAdvances.invalidate();
+      utils.accounting.listTransactions.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Conversion de l’avance impossible : " + err.message),
+  });
+
   const updateLeaveMutation = trpc.hr.updateLeave.useMutation({
     onSuccess: () => {
       toast.success("Demande de congé corrigée.");
@@ -916,6 +929,17 @@ export default function Home() {
       return;
     }
     createAdvanceMutation.mutate({ ...advanceForm, amount: toStoredEur(advanceForm.amount.trim()), notes: advanceForm.notes.trim() });
+  };
+
+  const handleConvertAdvanceToTransaction = (advance: { id: number; status: string; amount: unknown; agentId: number }) => {
+    if (advance.status !== "accordé") {
+      toast.error("L’avance doit d’abord être accordée par le superviseur.");
+      return;
+    }
+    const agentName = agentsQuery.data?.find(agent => agent.id === advance.agentId)?.name || `Agent #${advance.agentId}`;
+    if (window.confirm(`Enregistrer l’avance de ${agentName} (${formatMGA(Number(advance.amount), currentEurToMgaRate)}) comme sortie de caisse ? Cette action marquera l’avance comme déduite.`)) {
+      convertAdvanceToTransactionMutation.mutate({ advanceId: advance.id, currency: "MGA", exchangeRate: String(currentEurToMgaRate), paymentMethod: "Virement / Décaissement" });
+    }
   };
 
   const handleCreateTicket = () => {
@@ -1710,8 +1734,7 @@ export default function Home() {
 
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader>
-                  <CardTitle>Avances sur Salaire & Déductions</CardTitle>
-                  <CardDescription>Suivi des demandes d’acomptes à déduire du salaire net</CardDescription>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="flex items-center gap-2"><WalletCards className="h-5 w-5 text-amber-600" /> Planning superviseur · Avances</CardTitle><CardDescription>Validez le décaissement après accord RH : la sortie est enregistrée en comptabilité et l’avance passe à « déduit ».</CardDescription></div><Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-800">{(advancesQuery.data || []).filter(advance => advance.status === "accordé").length} à décaisser</Badge></div>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -1721,19 +1744,23 @@ export default function Home() {
                         <TableHead>Montant</TableHead>
                         <TableHead>Mois déduction</TableHead>
                         <TableHead>Statut</TableHead>
+                        <TableHead className="text-right">Action comptable</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {advancesQuery.data?.map(adv => (
-                        <TableRow key={adv.id}>
-                          <TableCell>Agent #{adv.agentId}</TableCell>
+                      {advancesQuery.data?.map(adv => {
+                        const agent = agentsQuery.data?.find(item => item.id === adv.agentId);
+                        const canCashOut = canManageHrRequests && adv.status === "accordé";
+                        return <TableRow key={adv.id}>
+                          <TableCell><div className="font-medium">{agent?.name || `Agent #${adv.agentId}`}</div><div className="text-xs text-slate-500">Demande du {String(adv.requestedDate).slice(0, 10)}</div></TableCell>
                           <TableCell className="font-bold text-indigo-600">{formatMGA(Number(adv.amount), currentEurToMgaRate)}</TableCell>
                           <TableCell>{adv.deductionMonth}</TableCell>
-                          <TableCell><Badge>{adv.status}</Badge></TableCell>
-                        </TableRow>
-                      ))}
+                          <TableCell><Badge variant={adv.status === "déduit" ? "default" : adv.status === "accordé" ? "secondary" : "outline"}>{adv.status}</Badge></TableCell>
+                          <TableCell className="text-right"><Button size="sm" variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" disabled={!canCashOut || convertAdvanceToTransactionMutation.isPending} onClick={() => handleConvertAdvanceToTransaction(adv)} title={adv.status === "accordé" ? "Enregistrer la sortie de caisse" : "Disponible après validation superviseur"}><WalletCards className="mr-1.5 h-3.5 w-3.5" /> {convertAdvanceToTransactionMutation.isPending ? "Enregistrement…" : "Sortie de caisse"}</Button></TableCell>
+                        </TableRow>;
+                      })}
                       {(!advancesQuery.data || advancesQuery.data.length === 0) && (
-                        <TableRow><TableCell colSpan={4} className="text-center py-4 text-slate-500">Aucune avance en cours.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={5} className="text-center py-4 text-slate-500">Aucune avance en cours.</TableCell></TableRow>
                       )}
                     </TableBody>
                   </Table>
