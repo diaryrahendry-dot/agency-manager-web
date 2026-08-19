@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { startLogin } from "@/const";
-import { DEFAULT_EUR_TO_MGA, formatMGA } from "@shared/currency";
+import { DEFAULT_EUR_TO_MGA, convertEurToMga, convertMgaToEur, formatMGA } from "@shared/currency";
 import { buildCommercialDocumentHtml, getCommercialTableColumnCount, type CommercialDocumentData } from "@shared/commercialDocuments";
 import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components/CommercialMGAColumns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -90,8 +90,8 @@ export default function Home() {
   const [isAgentEditOpen, setIsAgentEditOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
   const [agentFormError, setAgentFormError] = useState("");
-  const [agentForm, setAgentForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "3000.00", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
-  const [agentEditForm, setAgentEditForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "3000.00", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
+  const [agentForm, setAgentForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "15000000", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
+  const [agentEditForm, setAgentEditForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "15000000", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
 
   const [isTxOpen, setIsTxOpen] = useState(false);
   const [isTxEditOpen, setIsTxEditOpen] = useState(false);
@@ -102,14 +102,14 @@ export default function Home() {
   const [isLeaveOpen, setIsLeaveOpen] = useState(false);
   const [leaveForm, setLeaveForm] = useState({ agentId: 0, leaveType: "Annuel", startDate: "2026-08-19", endDate: "2026-08-19", daysCount: 1, reason: "" });
   const [isAdvanceOpen, setIsAdvanceOpen] = useState(false);
-  const [advanceForm, setAdvanceForm] = useState({ agentId: 0, amount: "500.00", requestedDate: "2026-08-19", deductionMonth: "2026-09", notes: "" });
+  const [advanceForm, setAdvanceForm] = useState({ agentId: 0, amount: "2500000", requestedDate: "2026-08-19", deductionMonth: "2026-09", notes: "" });
   const [isTicketOpen, setIsTicketOpen] = useState(false);
   const [ticketForm, setTicketForm] = useState({ agentId: 0, title: "", description: "", priority: "normale" as "basse" | "normale" | "haute" | "urgente", category: "Demande de congé" });
   const [expandedAgentId, setExpandedAgentId] = useState<number | null>(null);
   const [isLeaveEditOpen, setIsLeaveEditOpen] = useState(false);
   const [editingLeaveId, setEditingLeaveId] = useState<number | null>(null);
   const [leaveEditForm, setLeaveEditForm] = useState({ leaveType: "Annuel", startDate: "2026-08-19", endDate: "2026-08-19", daysCount: 1, reason: "" });
-  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "1500.00", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web", internalNote: "" });
+  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "7500000", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web", internalNote: "" });
 
   const [isLeadOpen, setIsLeadOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "5000.00", priority: "moyenne" as const, status: "nouveau" as const, nextContactDate: "2026-08-25", notes: "" });
@@ -128,16 +128,19 @@ export default function Home() {
   const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
   const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
 
+  const currentEurToMgaRate = Number(eurToMgaRate) > 0 ? Number(eurToMgaRate) : DEFAULT_EUR_TO_MGA;
+  const toStoredEur = (mgaValue: string) => convertMgaToEur(Number(mgaValue), currentEurToMgaRate).toFixed(2);
+
   const openAgentEdit = (agent: NonNullable<typeof agentsQuery.data>[number]) => {
     setEditingAgentId(agent.id);
-    setAgentEditForm({ name: agent.name, email: agent.email, phone: agent.phone || "", position: agent.position, department: agent.department, hireDate: String(agent.hireDate).slice(0, 10), salary: String(agent.salary), contractType: agent.contractType, address: agent.address || "", emergencyContact: agent.emergencyContact || "", notes: agent.notes || "" });
+    setAgentEditForm({ name: agent.name, email: agent.email, phone: agent.phone || "", position: agent.position, department: agent.department, hireDate: String(agent.hireDate).slice(0, 10), salary: String(Math.round(convertEurToMga(Number(agent.salary), Number(eurToMgaRate)))), contractType: agent.contractType, address: agent.address || "", emergencyContact: agent.emergencyContact || "", notes: agent.notes || "" });
     setAgentFormError("");
     setIsAgentEditOpen(true);
   };
 
   const openTransactionEdit = (transaction: NonNullable<typeof transactionsQuery.data>[number]) => {
     setEditingTxId(transaction.id);
-    setTxForm({ type: transaction.type, category: transaction.category, amount: String(transaction.amount), date: String(transaction.date).slice(0, 10), paymentMethod: transaction.paymentMethod, reference: transaction.reference || "", description: transaction.description, internalNote: transaction.internalNote || "" });
+    setTxForm({ type: transaction.type, category: transaction.category, amount: String(Math.round(convertEurToMga(Number(transaction.amount), Number(eurToMgaRate)))), date: String(transaction.date).slice(0, 10), paymentMethod: transaction.paymentMethod, reference: transaction.reference || "", description: transaction.description, internalNote: transaction.internalNote || "" });
     setIsTxEditOpen(true);
   };
 
@@ -199,7 +202,7 @@ export default function Home() {
       phone: agentForm.phone.trim(),
       position: agentForm.position.trim(),
       department: agentForm.department.trim(),
-      salary: agentForm.salary.trim(),
+      salary: toStoredEur(agentForm.salary.trim()),
       address: agentForm.address.trim(),
       emergencyContact: agentForm.emergencyContact.trim(),
       notes: agentForm.notes.trim(),
@@ -430,7 +433,7 @@ export default function Home() {
 
   const handleUpdateAgent = () => {
     if (!editingAgentId) return;
-    updateAgentMutation.mutate({ id: editingAgentId, ...agentEditForm, name: agentEditForm.name.trim(), email: agentEditForm.email.trim(), phone: agentEditForm.phone.trim(), position: agentEditForm.position.trim(), department: agentEditForm.department.trim(), salary: agentEditForm.salary.trim(), address: agentEditForm.address.trim(), emergencyContact: agentEditForm.emergencyContact.trim(), notes: agentEditForm.notes.trim() });
+    updateAgentMutation.mutate({ id: editingAgentId, ...agentEditForm, name: agentEditForm.name.trim(), email: agentEditForm.email.trim(), phone: agentEditForm.phone.trim(), position: agentEditForm.position.trim(), department: agentEditForm.department.trim(), salary: toStoredEur(agentEditForm.salary.trim()), address: agentEditForm.address.trim(), emergencyContact: agentEditForm.emergencyContact.trim(), notes: agentEditForm.notes.trim() });
   };
 
   const handleDeleteAgent = (agent: { id: number; name: string }) => {
@@ -439,9 +442,17 @@ export default function Home() {
     }
   };
 
+  const handleCreateTransaction = () => {
+    if (!Number.isFinite(Number(txForm.amount)) || Number(txForm.amount) <= 0) {
+      toast.error("Indiquez un montant comptable positif en Ariary.");
+      return;
+    }
+    createTxMutation.mutate({ ...txForm, amount: toStoredEur(txForm.amount.trim()), reference: txForm.reference.trim(), description: txForm.description.trim(), internalNote: txForm.internalNote.trim() });
+  };
+
   const handleUpdateTransaction = () => {
     if (!editingTxId) return;
-    updateTxMutation.mutate({ id: editingTxId, ...txForm, reference: txForm.reference.trim(), internalNote: txForm.internalNote.trim() });
+    updateTxMutation.mutate({ id: editingTxId, ...txForm, amount: toStoredEur(txForm.amount.trim()), reference: txForm.reference.trim(), internalNote: txForm.internalNote.trim() });
   };
 
   const handleSaveTimeEntry = () => {
@@ -480,7 +491,7 @@ export default function Home() {
       toast.error("Sélectionnez un agent et indiquez un montant d’avance positif.");
       return;
     }
-    createAdvanceMutation.mutate({ ...advanceForm, amount: advanceForm.amount.trim(), notes: advanceForm.notes.trim() });
+    createAdvanceMutation.mutate({ ...advanceForm, amount: toStoredEur(advanceForm.amount.trim()), notes: advanceForm.notes.trim() });
   };
 
   const handleCreateTicket = () => {
@@ -505,9 +516,9 @@ export default function Home() {
   // Export CSV Comptabilité
   const exportAccountingCSV = () => {
     const txs = transactionsQuery.data || [];
-    let csv = "ID,Type,Categorie,Montant,Date,ModePaiement,Reference,Description\n";
+    let csv = "ID,Type,Categorie,MontantEUR,MontantMGA,Date,ModePaiement,Reference,Description\n";
     txs.forEach(t => {
-      csv += `${t.id},${t.type},"${t.category}",${t.amount},${t.date},${t.paymentMethod},"${t.reference || ''}","${t.description.replace(/"/g, '""')}"\n`;
+      csv += `${t.id},${t.type},"${t.category}",${Number(t.amount).toFixed(2)},${Math.round(convertEurToMga(Number(t.amount), currentEurToMgaRate))},${t.date},${t.paymentMethod},"${t.reference || ''}","${t.description.replace(/"/g, '""')}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -526,11 +537,11 @@ export default function Home() {
       const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Information: "Aucune donnée" }]);
       XLSX.utils.book_append_sheet(workbook, worksheet, name.slice(0, 31));
     };
-    appendSheet("Mouvements", (transactionsQuery.data || []).map(tx => ({ ID: tx.id, Type: tx.type, Catégorie: tx.category, MontantEUR: Number(tx.amount), Date: String(tx.date), Mode: tx.paymentMethod, Référence: tx.reference || "", Description: tx.description, NoteInterne: tx.internalNote || "" })));
-    appendSheet("Agents RH", (agentsQuery.data || []).map(agent => ({ ID: agent.id, Nom: agent.name, Email: agent.email, Téléphone: agent.phone || "", Poste: agent.position, Département: agent.department, Embauche: String(agent.hireDate), SalaireEUR: Number(agent.salary), Contrat: agent.contractType, Statut: agent.status, Adresse: agent.address || "", ContactUrgence: agent.emergencyContact || "", Notes: agent.notes || "" })));
+    appendSheet("Mouvements", (transactionsQuery.data || []).map(tx => ({ ID: tx.id, Type: tx.type, Catégorie: tx.category, MontantEUR: Number(tx.amount), MontantMGA: convertEurToMga(Number(tx.amount), currentEurToMgaRate), Date: String(tx.date), Mode: tx.paymentMethod, Référence: tx.reference || "", Description: tx.description, NoteInterne: tx.internalNote || "" })));
+    appendSheet("Agents RH", (agentsQuery.data || []).map(agent => ({ ID: agent.id, Nom: agent.name, Email: agent.email, Téléphone: agent.phone || "", Poste: agent.position, Département: agent.department, Embauche: String(agent.hireDate), SalaireEUR: Number(agent.salary), SalaireMGA: convertEurToMga(Number(agent.salary), currentEurToMgaRate), Contrat: agent.contractType, Statut: agent.status, Adresse: agent.address || "", ContactUrgence: agent.emergencyContact || "", Notes: agent.notes || "" })));
     appendSheet("Pointages", (timeEntriesQuery.data || []).map(entry => ({ ID: entry.id, AgentID: entry.agentId, Date: String(entry.date), Heures: Number(entry.hoursWorked), Statut: entry.status, Notes: entry.notes || "" })));
     appendSheet("Congés", (leavesQuery.data || []).map(leave => ({ ID: leave.id, AgentID: leave.agentId, Type: leave.leaveType, Début: String(leave.startDate), Fin: String(leave.endDate), Jours: leave.daysCount, Statut: leave.status, Motif: leave.reason || "" })));
-    appendSheet("Avances salaire", (advancesQuery.data || []).map(advance => ({ ID: advance.id, AgentID: advance.agentId, MontantEUR: Number(advance.amount), DateDemande: String(advance.requestedDate), Statut: advance.status, MoisDéduction: advance.deductionMonth, Notes: advance.notes || "" })));
+    appendSheet("Avances salaire", (advancesQuery.data || []).map(advance => ({ ID: advance.id, AgentID: advance.agentId, MontantEUR: Number(advance.amount), MontantMGA: convertEurToMga(Number(advance.amount), currentEurToMgaRate), DateDemande: String(advance.requestedDate), Statut: advance.status, MoisDéduction: advance.deductionMonth, Notes: advance.notes || "" })));
     appendSheet("Contrats", (contractsQuery.data || []).map(contract => ({ ID: contract.id, AgentID: contract.agentId, Titre: contract.title, Type: contract.contractType, Début: String(contract.startDate), Fin: contract.endDate ? String(contract.endDate) : "", Statut: contract.status, URLDocument: contract.documentUrl || "", CléDocument: contract.documentKey || "" })));
     appendSheet("Tickets", (ticketsQuery.data || []).map(ticket => ({ ID: ticket.id, Titre: ticket.title, AgentID: ticket.agentId || "", ClientID: ticket.clientId || "", Priorité: ticket.priority, Statut: ticket.status, Catégorie: ticket.category, Description: ticket.description })));
     appendSheet("Leads CRM", (leadsQuery.data || []).map(lead => ({ ID: lead.id, Entreprise: lead.companyName, Contact: lead.contactName, Email: lead.email, Téléphone: lead.phone || "", MontantAttenduEUR: Number(lead.expectedAmount), Priorité: lead.priority, Statut: lead.status, ProchainContact: lead.nextContactDate ? String(lead.nextContactDate) : "", Notes: lead.notes || "" })));
@@ -543,7 +554,7 @@ export default function Home() {
     if (report) {
       appendSheet("Reporting mensuel", [
         { Section: "RH", Période: report.monthLabel, NouveauxAgents: report.sections.rh.newAgents, Pointages: report.sections.rh.timeEntries, Congés: report.sections.rh.leaveRequests, Avances: report.sections.rh.advances, Contrats: report.sections.rh.contracts, TicketsOuverts: report.sections.rh.openTickets },
-        { Section: "Comptabilité", Période: report.monthLabel, Mouvements: report.sections.accounting.transactions, EncaisséEUR: report.sections.accounting.collected, DépensesEUR: report.sections.accounting.expenses, SoldeEUR: report.sections.accounting.balance, FacturéEUR: report.sections.accounting.invoiced, PayéEUR: report.sections.accounting.paid },
+        { Section: "Comptabilité", Période: report.monthLabel, Mouvements: report.sections.accounting.transactions, EncaisséEUR: report.sections.accounting.collected, EncaisséMGA: convertEurToMga(report.sections.accounting.collected, currentEurToMgaRate), DépensesEUR: report.sections.accounting.expenses, DépensesMGA: convertEurToMga(report.sections.accounting.expenses, currentEurToMgaRate), SoldeEUR: report.sections.accounting.balance, SoldeMGA: convertEurToMga(report.sections.accounting.balance, currentEurToMgaRate), FacturéEUR: report.sections.accounting.invoiced, FacturéMGA: convertEurToMga(report.sections.accounting.invoiced, currentEurToMgaRate), PayéEUR: report.sections.accounting.paid, PayéMGA: convertEurToMga(report.sections.accounting.paid, currentEurToMgaRate) },
         { Section: "CRM", Période: report.monthLabel, NouveauxLeads: report.sections.crm.newLeads, PipelineEUR: report.sections.crm.pipeline, Gagnés: report.sections.crm.won, Relances: report.sections.crm.followUps },
         { Section: "Clients", Période: report.monthLabel, NouveauxClients: report.sections.clients.newClients, Interactions: report.sections.clients.interactions, Documents: report.sections.clients.documents },
         { Section: "Facturation", Période: report.monthLabel, Devis: report.sections.billing.quotes, Factures: report.sections.billing.invoices, FacturéEUR: report.sections.billing.invoiced, PayéEUR: report.sections.billing.paid, EnRetard: report.sections.billing.overdue },
@@ -648,7 +659,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-slate-900">
-                    {accountingSummary.data?.totalEntrees?.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) || '0,00 €'}
+                    {formatMGA(Number(accountingSummary.data?.totalEntrees || 0), currentEurToMgaRate)}
                   </div>
                   <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-emerald-700 hover:bg-transparent hover:text-emerald-900" onClick={event => { event.stopPropagation(); openDashboardModule("accounting"); }}>Voir la comptabilité <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
@@ -660,7 +671,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-slate-900">
-                    {accountingSummary.data?.solde?.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) || '0,00 €'}
+                    {formatMGA(Number(accountingSummary.data?.solde || 0), currentEurToMgaRate)}
                   </div>
                   <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-indigo-700 hover:bg-transparent hover:text-indigo-900" onClick={event => { event.stopPropagation(); openDashboardModule("accounting"); }}>Voir les mouvements <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
@@ -708,8 +719,8 @@ export default function Home() {
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                         <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
-                        <ChartTooltip formatter={(value: number) => value.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} />
+                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(convertEurToMga(Number(value), currentEurToMgaRate) / 1000000)}M`} />
+                        <ChartTooltip formatter={(value: number) => formatMGA(Number(value), currentEurToMgaRate)} />
                         <Area type="monotone" dataKey="revenue" name="CA encaissé" stroke="#4f46e5" fill="url(#revenueGradient)" strokeWidth={3} />
                         <Area type="monotone" dataKey="invoiced" name="Facturé" stroke="#06b6d4" fill="transparent" strokeWidth={2} strokeDasharray="5 5" />
                       </AreaChart>
@@ -730,8 +741,8 @@ export default function Home() {
                       <BarChart data={revenueReportQuery.data?.annual || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                         <XAxis dataKey="year" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
-                        <ChartTooltip formatter={(value: number) => value.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} />
+                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(convertEurToMga(Number(value), currentEurToMgaRate) / 1000000)}M`} />
+                        <ChartTooltip formatter={(value: number) => formatMGA(Number(value), currentEurToMgaRate)} />
                         <Bar dataKey="revenue" name="CA encaissé" fill="#10b981" radius={[5, 5, 0, 0]} />
                         <Bar dataKey="expenses" name="Dépenses" fill="#f43f5e" radius={[5, 5, 0, 0]} />
                       </BarChart>
@@ -750,8 +761,8 @@ export default function Home() {
                   </div>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Encaissé</p><p className="text-xl font-bold text-emerald-600">{(automaticReportQuery.data?.collected || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p></div>
-                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Dépenses</p><p className="text-xl font-bold text-rose-600">{(automaticReportQuery.data?.expenses || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p></div>
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Encaissé</p><p className="text-xl font-bold text-emerald-600">{formatMGA(Number(automaticReportQuery.data?.collected || 0), currentEurToMgaRate)}</p></div>
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Dépenses</p><p className="text-xl font-bold text-rose-600">{formatMGA(Number(automaticReportQuery.data?.expenses || 0), currentEurToMgaRate)}</p></div>
                   <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Factures du mois</p><p className="text-xl font-bold text-indigo-700">{automaticReportQuery.data?.invoicesCount || 0}</p></div>
                   <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">À relancer</p><p className="text-xl font-bold text-amber-600">{automaticReportQuery.data?.unpaidCount || 0}</p></div>
                 </CardContent>
@@ -760,7 +771,7 @@ export default function Home() {
                 <CardHeader className="pb-3"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Reporting intelligent par section</CardTitle><CardDescription>Analyse mensuelle de chaque pôle de l’agence à partir des données enregistrées.</CardDescription></div><div className="flex items-center gap-2"><Label htmlFor="report-month" className="text-xs text-slate-500">Période</Label><Input id="report-month" type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} className="w-40 bg-white" /></div></div></CardHeader>
                 <CardContent>{monthlyReportQuery.isLoading ? <div className="flex items-center justify-center py-8 text-sm text-slate-500"><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Calcul du reporting mensuel…</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">{[
                   { key: "rh", title: "RH", accent: "text-indigo-700", values: [`${monthlyReportQuery.data?.sections.rh.newAgents || 0} nouveaux agents`, `${monthlyReportQuery.data?.sections.rh.timeEntries || 0} pointages`, `${monthlyReportQuery.data?.sections.rh.openTickets || 0} tickets ouverts`] },
-                  { key: "accounting", title: "Comptabilité", accent: "text-emerald-700", values: [`${(monthlyReportQuery.data?.sections.accounting.collected || 0).toLocaleString("fr-FR")} € encaissés`, `${(monthlyReportQuery.data?.sections.accounting.expenses || 0).toLocaleString("fr-FR")} € dépenses`, `${monthlyReportQuery.data?.sections.accounting.transactions || 0} mouvements`] },
+                  { key: "accounting", title: "Comptabilité", accent: "text-emerald-700", values: [`${formatMGA(Number(monthlyReportQuery.data?.sections.accounting.collected || 0), currentEurToMgaRate)} encaissés`, `${formatMGA(Number(monthlyReportQuery.data?.sections.accounting.expenses || 0), currentEurToMgaRate)} dépenses`, `${monthlyReportQuery.data?.sections.accounting.transactions || 0} mouvements`] },
                   { key: "crm", title: "CRM", accent: "text-amber-700", values: [`${monthlyReportQuery.data?.sections.crm.newLeads || 0} nouveaux leads`, `${(monthlyReportQuery.data?.sections.crm.pipeline || 0).toLocaleString("fr-FR")} € pipeline`, `${monthlyReportQuery.data?.sections.crm.followUps || 0} relances`] },
                   { key: "clients", title: "Clients", accent: "text-cyan-700", values: [`${monthlyReportQuery.data?.sections.clients.newClients || 0} nouveaux clients`, `${monthlyReportQuery.data?.sections.clients.interactions || 0} échanges`, `${monthlyReportQuery.data?.sections.clients.documents || 0} documents`] },
                   { key: "billing", title: "Facturation", accent: "text-rose-700", values: [`${monthlyReportQuery.data?.sections.billing.quotes || 0} devis`, `${monthlyReportQuery.data?.sections.billing.invoices || 0} factures`, `${monthlyReportQuery.data?.sections.billing.overdue || 0} en retard`] },
@@ -788,7 +799,7 @@ export default function Home() {
                           </div>
                         </div>
                         <span className={`font-bold text-sm ${tx.type === 'entrée' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {tx.type === 'entrée' ? '+' : '-'}{Number(tx.amount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          {tx.type === 'entrée' ? '+' : '-'}{formatMGA(Number(tx.amount), currentEurToMgaRate)}
                         </span>
                       </div>
                     ))}
@@ -872,8 +883,9 @@ export default function Home() {
                       <Input type="date" value={agentForm.hireDate} onChange={e => setAgentForm({...agentForm, hireDate: e.target.value})} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Salaire net (€)</Label>
-                      <Input value={agentForm.salary} onChange={e => setAgentForm({...agentForm, salary: e.target.value})} placeholder="3500.00" />
+                      <Label>Salaire net (Ar)</Label>
+                      <Input type="number" min="0" step="1" value={agentForm.salary} onChange={e => setAgentForm({...agentForm, salary: e.target.value})} placeholder="15000000" />
+                      <p className="text-[11px] text-slate-500">Saisie en Ariary · taux de référence : 1 € = {currentEurToMgaRate.toLocaleString("fr-FR")} Ar</p>
                     </div>
                     <div className="space-y-2">
                       <Label>Type de contrat</Label>
@@ -966,7 +978,7 @@ export default function Home() {
                   <DialogHeader><DialogTitle>Demande d’avance sur salaire</DialogTitle><DialogDescription>L’avance sera suivie et déduite du salaire net au mois choisi.</DialogDescription></DialogHeader>
                   <div className="space-y-4 py-4">
                     <div className="space-y-2"><Label>Agent</Label><Select value={advanceForm.agentId ? String(advanceForm.agentId) : ""} onValueChange={value => setAdvanceForm({ ...advanceForm, agentId: Number(value) })}><SelectTrigger><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger><SelectContent>{agentsQuery.data?.map(agent => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name} · {agent.position}</SelectItem>)}</SelectContent></Select></div>
-                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Montant (€)</Label><Input type="number" min="0" step="0.01" value={advanceForm.amount} onChange={event => setAdvanceForm({ ...advanceForm, amount: event.target.value })} /></div><div className="space-y-2"><Label>Date de demande</Label><Input type="date" value={advanceForm.requestedDate} onChange={event => setAdvanceForm({ ...advanceForm, requestedDate: event.target.value })} /></div><div className="col-span-2 space-y-2"><Label>Mois de déduction</Label><Input type="month" value={advanceForm.deductionMonth} onChange={event => setAdvanceForm({ ...advanceForm, deductionMonth: event.target.value })} /></div></div>
+                    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Montant de l’avance (Ar)</Label><Input type="number" min="0" step="1" value={advanceForm.amount} onChange={event => setAdvanceForm({ ...advanceForm, amount: event.target.value })} /><p className="text-[11px] text-slate-500">La valeur sera enregistrée selon le taux de référence puis réaffichée en Ariary.</p></div><div className="space-y-2"><Label>Date de demande</Label><Input type="date" value={advanceForm.requestedDate} onChange={event => setAdvanceForm({ ...advanceForm, requestedDate: event.target.value })} /></div><div className="col-span-2 space-y-2"><Label>Mois de déduction</Label><Input type="month" value={advanceForm.deductionMonth} onChange={event => setAdvanceForm({ ...advanceForm, deductionMonth: event.target.value })} /></div></div>
                     <div className="space-y-2"><Label>Note</Label><Textarea value={advanceForm.notes} onChange={event => setAdvanceForm({ ...advanceForm, notes: event.target.value })} placeholder="Précisez le contexte de la demande…" /></div>
                   </div>
                   <DialogFooter><Button onClick={handleCreateAdvance} disabled={createAdvanceMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createAdvanceMutation.isPending ? "Enregistrement…" : "Enregistrer la demande"}</Button></DialogFooter>
@@ -994,7 +1006,7 @@ export default function Home() {
                     <div className="space-y-2"><Label>Poste / Fonction</Label><Input value={agentEditForm.position} onChange={e => setAgentEditForm({ ...agentEditForm, position: e.target.value })} /></div>
                     <div className="space-y-2"><Label>Département</Label><Input value={agentEditForm.department} onChange={e => setAgentEditForm({ ...agentEditForm, department: e.target.value })} /></div>
                     <div className="space-y-2"><Label>Date d’embauche</Label><Input type="date" value={agentEditForm.hireDate} onChange={e => setAgentEditForm({ ...agentEditForm, hireDate: e.target.value })} /></div>
-                    <div className="space-y-2"><Label>Salaire net (€)</Label><Input type="number" min="0" value={agentEditForm.salary} onChange={e => setAgentEditForm({ ...agentEditForm, salary: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Salaire net (Ar)</Label><Input type="number" min="0" step="1" value={agentEditForm.salary} onChange={e => setAgentEditForm({ ...agentEditForm, salary: e.target.value })} /></div>
                     <div className="space-y-2"><Label>Type de contrat</Label><Select value={agentEditForm.contractType} onValueChange={value => setAgentEditForm({ ...agentEditForm, contractType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="CDI">CDI</SelectItem><SelectItem value="CDD">CDD</SelectItem><SelectItem value="Stage">Stage</SelectItem><SelectItem value="Freelance">Freelance</SelectItem></SelectContent></Select></div>
                     <div className="col-span-2 space-y-2"><Label>Note interne RH</Label><Textarea value={agentEditForm.notes} onChange={e => setAgentEditForm({ ...agentEditForm, notes: e.target.value })} placeholder="Observations utiles sur le dossier agent…" /></div>
                   </div>
@@ -1054,6 +1066,7 @@ export default function Home() {
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Avances</p><p className="mt-1 text-base font-semibold text-emerald-700">{summary.advances}</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Tickets</p><p className="mt-1 text-base font-semibold text-violet-700">{summary.tickets}</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Embauche</p><p className="mt-1 font-semibold text-slate-900">{String(agent.hireDate).slice(0, 10)}</p></div>
+                                <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Salaire net</p><p className="mt-1 font-semibold text-emerald-700">{formatMGA(Number(agent.salary), currentEurToMgaRate)}</p></div>
                               </div>
                               {(agent.email || agent.phone || agent.notes) && <div className="mt-3 space-y-1 text-xs text-slate-600"><p>{agent.email}{agent.phone ? ` · ${agent.phone}` : ""}</p>{agent.notes && <p className="line-clamp-2">Note : {agent.notes}</p>}</div>}
                             </CardContent>
@@ -1142,7 +1155,7 @@ export default function Home() {
                       {advancesQuery.data?.map(adv => (
                         <TableRow key={adv.id}>
                           <TableCell>Agent #{adv.agentId}</TableCell>
-                          <TableCell className="font-bold text-indigo-600">{Number(adv.amount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
+                          <TableCell className="font-bold text-indigo-600">{formatMGA(Number(adv.amount), currentEurToMgaRate)}</TableCell>
                           <TableCell>{adv.deductionMonth}</TableCell>
                           <TableCell><Badge>{adv.status}</Badge></TableCell>
                         </TableRow>
@@ -1197,8 +1210,9 @@ export default function Home() {
                         <Input value={txForm.category} onChange={e => setTxForm({...txForm, category: e.target.value})} placeholder="Vente client, Loyer, Fournitures..." />
                       </div>
                       <div className="space-y-2">
-                        <Label>Montant (€)</Label>
-                        <Input value={txForm.amount} onChange={e => setTxForm({...txForm, amount: e.target.value})} placeholder="1500.00" />
+                        <Label>Montant comptable (Ar)</Label>
+                        <Input type="number" min="0" step="1" value={txForm.amount} onChange={e => setTxForm({...txForm, amount: e.target.value})} placeholder="7500000" />
+                        <p className="text-[11px] text-slate-500">Saisie en Ariary · taux de référence : 1 € = {currentEurToMgaRate.toLocaleString("fr-FR")} Ar</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Date</Label>
@@ -1214,7 +1228,7 @@ export default function Home() {
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button onClick={() => createTxMutation.mutate(txForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
+                      <Button onClick={handleCreateTransaction} disabled={createTxMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
                         Enregistrer
                       </Button>
                     </DialogFooter>
@@ -1224,7 +1238,7 @@ export default function Home() {
                   <DialogContent className="max-w-lg bg-white rounded-2xl">
                     <DialogHeader><DialogTitle>Corriger un mouvement comptable</DialogTitle><DialogDescription>Modifiez les informations ou ajoutez une note interne de suivi.</DialogDescription></DialogHeader>
                     <div className="space-y-4 py-4">
-                      <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={txForm.type} onValueChange={value => setTxForm({ ...txForm, type: value as typeof txForm.type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="entrée">Entrée</SelectItem><SelectItem value="sortie">Sortie</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Montant (€)</Label><Input type="number" min="0" value={txForm.amount} onChange={e => setTxForm({ ...txForm, amount: e.target.value })} /></div></div>
+                      <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={txForm.type} onValueChange={value => setTxForm({ ...txForm, type: value as typeof txForm.type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="entrée">Entrée</SelectItem><SelectItem value="sortie">Sortie</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Montant comptable (Ar)</Label><Input type="number" min="0" step="1" value={txForm.amount} onChange={e => setTxForm({ ...txForm, amount: e.target.value })} /></div></div>
                       <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Catégorie</Label><Input value={txForm.category} onChange={e => setTxForm({ ...txForm, category: e.target.value })} /></div><div className="space-y-2"><Label>Date</Label><Input type="date" value={txForm.date} onChange={e => setTxForm({ ...txForm, date: e.target.value })} /></div></div>
                       <div className="space-y-2"><Label>Description</Label><Textarea value={txForm.description} onChange={e => setTxForm({ ...txForm, description: e.target.value })} /></div>
                       <div className="space-y-2"><Label>Note interne</Label><Textarea value={txForm.internalNote} onChange={e => setTxForm({ ...txForm, internalNote: e.target.value })} placeholder="Correction, justification ou rappel interne…" /></div>
@@ -1268,7 +1282,7 @@ export default function Home() {
                         <TableCell className="max-w-[220px] text-xs text-slate-500">{tx.internalNote || "—"}</TableCell>
                         <TableCell>{tx.paymentMethod}</TableCell>
                         <TableCell className={`text-right font-bold ${tx.type === 'entrée' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {tx.type === 'entrée' ? '+' : '-'}{Number(tx.amount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          {tx.type === 'entrée' ? '+' : '-'}{formatMGA(Number(tx.amount), currentEurToMgaRate)}
                         </TableCell>
                         <TableCell className="text-right"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Corriger le mouvement" onClick={() => openTransactionEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button></TableCell>
                       </TableRow>

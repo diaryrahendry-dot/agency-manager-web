@@ -82,3 +82,8 @@
 - [x] Ajouter un bouton de modification du nombre de jours de congé (soldes / attribution)
 - [x] Concevoir un tableau récapitulatif rétractable sur la carte de l’agent pour ses données RH
 - [x] Valider avec TypeScript, Vitest et un nouveau checkpoint
+
+- [ ] Adapter l’affichage de la comptabilité et de la RH (salaires, avances) en Ariary (MGA) avec taux de conversion ou format direct Ariary
+- [ ] Mettre à jour les formulaires de saisie et les récapitulatifs pour utiliser l’Ariary en compta et RH
+- [ ] Valider avec les tests unitaires Vitest et TypeScript
+- [ ] Créer le checkpoint final de la mise à jour MGA

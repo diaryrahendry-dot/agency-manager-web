@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { convertEurToMga, formatMGA } from "../shared/currency";
+import { convertEurToMga, convertMgaToEur, formatMGA } from "../shared/currency";
 
 describe("currency helpers", () => {
   it("converts euros to ariary using the configured rate", () => {
     expect(convertEurToMga(2400, 5000)).toBe(12000000);
     expect(formatMGA(2400, 5000)).toBe("12 000 000 Ar");
+  });
+
+  it("converts ariary input back to the stored euro reference", () => {
+    expect(convertMgaToEur(12000000, 5000)).toBe(2400);
+    expect(convertMgaToEur(0, 5000)).toBe(0);
   });
 
   it("returns zero for invalid or negative rates", () => {
