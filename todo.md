@@ -75,3 +75,10 @@
 - [x] Créer un export de sauvegarde global XLSX/CSV couvrant RH, comptabilité, CRM, clients, devis/factures et documents référencés
 - [x] Tester le backup global et les actions CRUD pointages/congés
 - [x] Créer un nouveau checkpoint après ces corrections et ne clôturer la validation finale qu’après confirmation
+
+- [ ] Modifier le pointage agent en nombre de jours (1 journée standard) et calculer la somme totale du mois en jours de travail
+- [ ] Ajouter les boutons « Déclarer une absence » et « Demande d’avance » directement depuis la fiche agent
+- [ ] Créer automatiquement des tickets de suivi pour les demandes de congé et demandes exceptionnelles
+- [ ] Ajouter un bouton de modification du nombre de jours de congé (soldes / attribution)
+- [ ] Concevoir un tableau récapitulatif rétractable sur la carte de l’agent pour ses données RH
+- [ ] Valider avec TypeScript, Vitest et un nouveau checkpoint
