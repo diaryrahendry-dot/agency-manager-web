@@ -172,3 +172,12 @@
 - [x] Vérification par comptes superviseur/collaborateur volontairement sautée à la demande ; preuve admin, protections serveur, tests et vérifications responsive disponibles
 - [x] Documenter la limite de validation : seuls le compte admin et les protections serveur/tests sont vérifiés, sans création de comptes superviseur/collaborateur supplémentaires
 - [x] Sauvegarder un checkpoint restaurable après validation finale du RBAC, du dashboard collaborateur et des tickets RH
+- [x] Ajouter le calcul du solde de congés valides par agent et le décompte après validation à la fin de la période
+- [x] Ajouter une boîte de réception superviseur pour les tickets et demandes RH avec bouton de validation
+- [x] Ajouter l’annulation d’une demande de congé avec synchronisation du ticket et restauration du solde si nécessaire
+- [x] Ajouter la modification d’une demande de congé pour l’agent et le superviseur avec contrôles d’état et de périmètre
+- [x] Synchroniser la validation et la clôture de période avec la demande, le ticket et le solde agent
+- [x] Ajouter un endpoint planifié idempotent pour décompter les congés approuvés dont la période est terminée
+- [x] Prévoir l’activation du traitement planifié après déploiement sans utiliser de timer dans le serveur
+- [x] Ajouter les tests de solde, validation, annulation, modification et permissions RH
+- [ ] Vérifier le responsive agent/superviseur et sauvegarder un checkpoint final

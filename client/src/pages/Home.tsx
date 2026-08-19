@@ -7,7 +7,7 @@ import {
   Users, DollarSign, Kanban, Building2, FileText, Ticket, 
   Plus, Search, Download, CheckCircle, Clock, AlertCircle, 
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, FileSpreadsheet, 
-  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw, Pencil, ArrowRight, ClipboardCheck, Trash2, ChevronDown, MessageSquarePlus, WalletCards, Settings, UserCog, FolderPlus
+  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw, Pencil, ArrowRight, ClipboardCheck, Trash2, ChevronDown, MessageSquarePlus, WalletCards, Settings, UserCog, FolderPlus, Mail, Check, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -140,6 +140,12 @@ export default function Home() {
   const advancesQuery = trpc.hr.listSalaryAdvances.useQuery(undefined, { enabled: isAuthenticated });
   const contractsQuery = trpc.hr.listContracts.useQuery(undefined, { enabled: isAuthenticated });
   const ticketsQuery = trpc.hr.listTickets.useQuery(undefined, { enabled: isAuthenticated });
+  const permissionsQuery = trpc.permissions.current.useQuery(undefined, { enabled: isAuthenticated });
+  const hasPermission = (key: PermissionKey) => Boolean(permissionsQuery.data?.permissions?.includes(key));
+  const canManageHrRequests = hasPermission("hr.request.manage");
+  const canEditHrRequests = hasPermission("hr.request.edit") || canManageHrRequests;
+  const canCancelHrRequests = hasPermission("hr.request.cancel") || canManageHrRequests;
+  const canViewTeamHr = hasPermission("hr.team.view") || hasPermission("hr.manage");
   
   const transactionsQuery = trpc.accounting.listTransactions.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
   const accountingSummary = trpc.accounting.summary.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
@@ -566,9 +572,32 @@ export default function Home() {
     onSuccess: () => {
       toast.success("Demande de congé supprimée.");
       utils.hr.listLeaves.invalidate();
+      utils.hr.listTickets.invalidate();
       utils.accounting.monthlyReport.invalidate();
     },
     onError: (err) => toast.error("Impossible de supprimer le congé : " + err.message),
+  });
+
+  const cancelLeaveMutation = trpc.hr.cancelLeave.useMutation({
+    onSuccess: () => {
+      toast.success("Demande de congé annulée.");
+      utils.hr.listLeaves.invalidate();
+      utils.hr.listTickets.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible d’annuler le congé : " + err.message),
+  });
+
+  const updateTicketStatusMutation = trpc.hr.updateTicketStatus.useMutation({
+    onSuccess: (_data, variables) => {
+      toast.success(variables.status === "résolu" ? "Demande validée et synchronisée avec le dossier agent." : variables.status === "fermé" ? "Demande refusée et ticket clôturé." : "Statut du ticket mis à jour.");
+      utils.hr.listTickets.invalidate();
+      utils.hr.listLeaves.invalidate();
+      utils.hr.listSalaryAdvances.invalidate();
+      utils.hr.listAgents.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de traiter la demande : " + err.message),
   });
 
   const updateTxMutation = trpc.accounting.updateTransaction.useMutation({
@@ -878,6 +907,16 @@ export default function Home() {
     }
   };
 
+  const handleCancelLeave = (leave: { id: number; leaveType: string }) => {
+    if (window.confirm(`Annuler la demande de congé « ${leave.leaveType} » ?`)) {
+      cancelLeaveMutation.mutate({ id: leave.id });
+    }
+  };
+
+  const handleProcessTicket = (ticket: { id: number; status: string }, status: "résolu" | "fermé") => {
+    updateTicketStatusMutation.mutate({ id: ticket.id, status });
+  };
+
   const handleSaveDynamicStat = () => {
     if (!statForm.monthKey || !statForm.clientName.trim() || !statForm.agentName.trim() || !statForm.serviceName.trim()) {
       toast.error("Renseignez le mois, le client, l’agent et le service.");
@@ -1083,7 +1122,7 @@ export default function Home() {
 
           {/* TABLEAU DE BORD */}
           <TabsContent value="dashboard" className="space-y-6">
-            {isCollaborator && <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-indigo-600" /> Mon espace collaborateur</CardTitle><CardDescription>Un espace personnel pour enregistrer votre journée et transmettre vos demandes au suivi RH.</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Pointages</p><p className="text-xl font-bold text-indigo-700">{timeEntriesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Congés</p><p className="text-xl font-bold text-emerald-700">{leavesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Avances</p><p className="text-xl font-bold text-amber-700">{advancesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Tickets</p><p className="text-xl font-bold text-rose-700">{ticketsQuery.data?.length || 0}</p></div></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Button className="bg-indigo-600 text-white hover:bg-indigo-500" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); setIsTimeEntryOpen(true); }}><ClipboardCheck className="mr-2 h-4 w-4" /> Nouveau pointage</Button><Button variant="outline" className="border-amber-200 text-amber-800 hover:bg-amber-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setAdvanceForm(form => ({ ...form, agentId })); setIsAdvanceOpen(true); }}><WalletCards className="mr-2 h-4 w-4" /> Demander une avance</Button><Button variant="outline" className="border-emerald-200 text-emerald-800 hover:bg-emerald-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setLeaveForm(form => ({ ...form, agentId })); setIsLeaveOpen(true); }}><Calendar className="mr-2 h-4 w-4" /> Demander un congé</Button><Button variant="outline" className="border-rose-200 text-rose-800 hover:bg-rose-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setTicketForm(form => ({ ...form, agentId, title: "", description: "", category: "Demande exceptionnelle" })); setIsTicketOpen(true); }}><Ticket className="mr-2 h-4 w-4" /> Créer un ticket</Button></div><p className="text-xs text-slate-500">Les pointages sont verrouillés après création. Les demandes de congé, d’avance et d’exception sont automatiquement rattachées à votre compte et transmises au suivi RH.</p></CardContent></Card>}
+            {isCollaborator && <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-indigo-600" /> Mon espace collaborateur</CardTitle><CardDescription>Un espace personnel pour enregistrer votre journée et transmettre vos demandes au suivi RH.</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-5"><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Pointages</p><p className="text-xl font-bold text-indigo-700">{timeEntriesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-cyan-100 bg-cyan-50/70 p-3"><p className="text-xs text-cyan-700">Solde congé</p><p className="text-xl font-bold text-cyan-800">{Number(agentsQuery.data?.[0]?.leaveBalanceDays ?? 0).toFixed(2)} j</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Congés</p><p className="text-xl font-bold text-emerald-700">{leavesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Avances</p><p className="text-xl font-bold text-amber-700">{advancesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Tickets</p><p className="text-xl font-bold text-rose-700">{ticketsQuery.data?.length || 0}</p></div></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Button className="bg-indigo-600 text-white hover:bg-indigo-500" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); setIsTimeEntryOpen(true); }}><ClipboardCheck className="mr-2 h-4 w-4" /> Nouveau pointage</Button><Button variant="outline" className="border-amber-200 text-amber-800 hover:bg-amber-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setAdvanceForm(form => ({ ...form, agentId })); setIsAdvanceOpen(true); }}><WalletCards className="mr-2 h-4 w-4" /> Demander une avance</Button><Button variant="outline" className="border-emerald-200 text-emerald-800 hover:bg-emerald-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setLeaveForm(form => ({ ...form, agentId })); setIsLeaveOpen(true); }}><Calendar className="mr-2 h-4 w-4" /> Demander un congé</Button><Button variant="outline" className="border-rose-200 text-rose-800 hover:bg-rose-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setTicketForm(form => ({ ...form, agentId, title: "", description: "", category: "Demande exceptionnelle" })); setIsTicketOpen(true); }}><Ticket className="mr-2 h-4 w-4" /> Créer un ticket</Button></div><p className="text-xs text-slate-500">Les pointages sont verrouillés après création. Les demandes de congé, d’avance et d’exception sont automatiquement rattachées à votre compte et transmises au suivi RH.</p></CardContent></Card>}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {canViewRevenueDashboard && <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité depuis le chiffre d’affaires" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -1506,7 +1545,7 @@ export default function Home() {
                                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 font-semibold text-indigo-700">{agent.name.slice(0, 1).toUpperCase()}</div>
                                     <div className="min-w-0"><p className="truncate font-semibold text-slate-900">{agent.name}</p><p className="truncate text-xs text-slate-500">{agent.position} · {agent.department}</p></div>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap gap-2"><Badge variant="outline">{agent.contractType}</Badge><Badge className="bg-emerald-100 text-emerald-800">{agent.status}</Badge><span className="text-xs text-slate-500">{seniority} an(s)</span></div>
+                                  <div className="mt-3 flex flex-wrap gap-2"><Badge variant="outline">{agent.contractType}</Badge><Badge className="bg-emerald-100 text-emerald-800">{agent.status}</Badge><span className="text-xs text-slate-500">{seniority} an(s)</span><span className="rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-semibold text-cyan-700">Solde congé : {Number(agent.leaveBalanceDays ?? 0).toFixed(2)} j</span></div>
                                 </button>
                               </CollapsibleTrigger>
                               <ChevronDown className={`mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -1528,7 +1567,7 @@ export default function Home() {
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Jours travaillés</p><p className="mt-1 text-base font-semibold text-indigo-700">{summary.workDays.toFixed(2)}</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Heures</p><p className="mt-1 text-base font-semibold text-slate-900">{summary.workedHours.toFixed(2)} h</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Absences</p><p className="mt-1 text-base font-semibold text-amber-700">{summary.absences}</p></div>
-                                <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Congés</p><p className="mt-1 text-base font-semibold text-cyan-700">{summary.leaveDays} j</p></div>
+                                <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Congés du mois</p><p className="mt-1 text-base font-semibold text-cyan-700">{summary.leaveDays} j</p></div><div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Solde disponible</p><p className="mt-1 text-base font-semibold text-cyan-700">{Number(agent.leaveBalanceDays ?? 0).toFixed(2)} j</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Pointages</p><p className="mt-1 text-base font-semibold text-slate-900">{summary.entries}</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Avances</p><p className="mt-1 text-base font-semibold text-emerald-700">{summary.advances}</p></div>
                                 <div className="rounded-lg bg-white p-2.5"><p className="text-slate-500">Tickets</p><p className="mt-1 text-base font-semibold text-violet-700">{summary.tickets}</p></div>
@@ -1546,6 +1585,42 @@ export default function Home() {
                 </div>
               </CardContent>
             </Card>
+
+            {canManageHrRequests && <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 shadow-sm">
+              <CardHeader>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-indigo-950"><Mail className="h-5 w-5 text-indigo-600" /> Boîte de réception superviseur</CardTitle>
+                    <CardDescription>Tickets et demandes de l’équipe à valider depuis un espace unique.</CardDescription>
+                  </div>
+                  <Badge className="w-fit bg-indigo-100 text-indigo-800">{(ticketsQuery.data || []).filter(ticket => ticket.status === "ouvert" || ticket.status === "en_cours").length} à traiter</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {(ticketsQuery.data || []).map(ticket => {
+                    const agent = agentsQuery.data?.find(item => item.id === ticket.agentId);
+                    const isPending = ticket.status === "ouvert" || ticket.status === "en_cours";
+                    const isLeaveRequest = ticket.requestType === "conge";
+                    const isAdvanceRequest = ticket.requestType === "avance";
+                    return <div key={ticket.id} className={`rounded-xl border p-4 ${isPending ? "border-indigo-200 bg-white" : "border-slate-200 bg-slate-50/70"}`}>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-900">{ticket.title}</p><Badge variant="outline">{ticket.status}</Badge></div>
+                          <p className="mt-1 text-xs text-slate-500">{agent?.name || (ticket.agentId ? `Agent #${ticket.agentId}` : "Ticket transversal")} · {ticket.category} · priorité {ticket.priority}</p>
+                          <p className="mt-2 line-clamp-3 text-sm text-slate-600">{ticket.description}</p>
+                        </div>
+                        {isPending && <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col">
+                          <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => handleProcessTicket(ticket, "résolu")} disabled={updateTicketStatusMutation.isPending}><Check className="mr-1.5 h-3.5 w-3.5" /> {isLeaveRequest ? "Valider le congé" : isAdvanceRequest ? "Accorder l’avance" : "Résoudre"}</Button>
+                          <Button size="sm" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => handleProcessTicket(ticket, "fermé")} disabled={updateTicketStatusMutation.isPending}><X className="mr-1.5 h-3.5 w-3.5" /> Refuser</Button>
+                        </div>}
+                      </div>
+                    </div>;
+                  })}
+                  {(!ticketsQuery.data || ticketsQuery.data.length === 0) && <div className="rounded-xl border border-dashed border-indigo-200 bg-white/70 p-6 text-center text-sm text-slate-500 lg:col-span-2">Aucun ticket ou demande dans votre périmètre.</div>}
+                </div>
+              </CardContent>
+            </Card>}
 
             {/* Section Pointages, Congés et Avances sur salaire */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1595,7 +1670,7 @@ export default function Home() {
                         <div className="flex items-start justify-between gap-2"><div><p className="font-medium text-sm text-slate-900">{agent?.name || `Agent #${leave.agentId}`}</p><p className="text-xs text-slate-500">{leave.leaveType} · {leave.daysCount} jour(s)</p></div><Badge variant="outline">{leave.status}</Badge></div>
                         <p className="text-xs text-slate-500">{String(leave.startDate).slice(0, 10)} → {String(leave.endDate).slice(0, 10)}</p>
                         {leave.reason && <p className="text-xs text-slate-600 line-clamp-2">{leave.reason}</p>}
-                        <div className="flex justify-end gap-1"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Modifier le nombre de jours et la demande" onClick={() => openLeaveEdit(leave)}><Pencil className="w-3.5 h-3.5" /></Button><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50" title="Supprimer la demande" onClick={() => handleDeleteLeave(leave)} disabled={deleteLeaveMutation.isPending}><Trash2 className="w-3.5 h-3.5" /></Button></div>
+                        <div className="flex flex-wrap justify-end gap-1"><span className="mr-auto self-center text-[11px] text-slate-500">{leave.deductedAt ? "Période clôturée · verrouillée" : "Modifiable avant clôture"}</span>{canEditHrRequests && !leave.deductedAt && leave.status !== "annulé" && <Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Modifier la demande" onClick={() => openLeaveEdit(leave)}><Pencil className="w-3.5 h-3.5" /></Button>}{canCancelHrRequests && !leave.deductedAt && leave.status !== "annulé" && <Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-amber-200 text-amber-700 hover:bg-amber-50" title="Annuler la demande" onClick={() => handleCancelLeave(leave)} disabled={cancelLeaveMutation.isPending}><X className="w-3.5 h-3.5" /></Button>}{canManageHrRequests && <Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50" title="Supprimer la demande" onClick={() => handleDeleteLeave(leave)} disabled={deleteLeaveMutation.isPending}><Trash2 className="h-3.5 w-3.5" /></Button>}</div>
                       </div>;
                     })}
                     {(!leavesQuery.data || leavesQuery.data.length === 0) && <p className="py-8 text-center text-sm text-slate-500">Aucune demande de congé.</p>}

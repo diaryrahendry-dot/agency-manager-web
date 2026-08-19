@@ -85,6 +85,7 @@ export const agents = mysqlTable("agents", {
   address: text("address"),
   emergencyContact: text("emergencyContact"),
   notes: text("notes"),
+  leaveBalanceDays: int("leaveBalanceDays").default(30).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -105,8 +106,13 @@ export const leaves = mysqlTable("leaves", {
   startDate: date("startDate").notNull(),
   endDate: date("endDate").notNull(),
   daysCount: int("daysCount").notNull(),
-  status: mysqlEnum("status", ["en_attente", "approuvé", "refusé"]).default("en_attente").notNull(),
+  status: mysqlEnum("status", ["en_attente", "approuvé", "refusé", "annulé"]).default("en_attente").notNull(),
   reason: text("reason"),
+  approvedAt: timestamp("approvedAt"),
+  approvedByUserId: int("approvedByUserId"),
+  canceledAt: timestamp("canceledAt"),
+  canceledByUserId: int("canceledByUserId"),
+  deductedAt: timestamp("deductedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

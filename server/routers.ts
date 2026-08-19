@@ -11,7 +11,7 @@ import {
   quotes, invoices, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers,
   rolePermissions, supervisorTeams
 } from "../drizzle/schema";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
 import { PROJECT_TEMPLATE_KEYS } from "../shared/projectTemplates";
@@ -26,6 +26,54 @@ function amountOf(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
 }
+
+function normalizedLeaveType(value: unknown) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function consumesLeaveBalance(value: unknown) {
+  const type = normalizedLeaveType(value);
+  if (!type) return true;
+  return !/(maladie|sans solde|exceptionnel|maternite|paternite|permission)/.test(type);
+}
+
+function periodHasEnded(value: string | Date | null | undefined) {
+  const endDate = dateKey(value);
+  if (!endDate) return false;
+  return endDate < new Date().toISOString().slice(0, 10);
+}
+
+async function findLeaveForProject(database: any, leaveId: number, projectId: number | null | undefined) {
+  const rows = await database.select({
+    id: leaves.id,
+    agentId: leaves.agentId,
+    leaveType: leaves.leaveType,
+    startDate: leaves.startDate,
+    endDate: leaves.endDate,
+    daysCount: leaves.daysCount,
+    status: leaves.status,
+    deductedAt: leaves.deductedAt,
+    approvedAt: leaves.approvedAt,
+    approvedByUserId: leaves.approvedByUserId,
+    canceledAt: leaves.canceledAt,
+    canceledByUserId: leaves.canceledByUserId,
+    leaveBalanceDays: agents.leaveBalanceDays,
+  }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, leaveId), projectScope(agents.projectId, projectId))).limit(1);
+  return rows[0] ?? null;
+}
+
+async function approveLeaveRecord(database: any, leaveId: number, actorUserId: number, projectId: number | null | undefined) {
+  const existing = await findLeaveForProject(database, leaveId, projectId);
+  if (!existing) throw new Error("Demande de congé introuvable");
+  if (existing.deductedAt) throw new Error("Cette demande a déjà été décomptée en fin de période");
+  if (existing.status !== "approuvé" && consumesLeaveBalance(existing.leaveType) && Number(existing.leaveBalanceDays) < Number(existing.daysCount)) {
+    throw new Error(`Solde de congés insuffisant : ${existing.leaveBalanceDays} jour(s) disponible(s)`);
+  }
+  await database.update(leaves).set({ status: "approuvé", approvedAt: existing.approvedAt || new Date(), approvedByUserId: existing.approvedByUserId || actorUserId, canceledAt: null, canceledByUserId: null } as any).where(eq(leaves.id, leaveId));
+  await database.update(tickets).set({ status: "résolu" } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, leaveId), eq(tickets.agentId, existing.agentId)));
+  return existing;
+}
+
 function projectScope(column: any, projectId?: number | null) {
   return projectId ? or(eq(column, projectId), isNull(column)) : isNull(column);
 }
@@ -63,6 +111,24 @@ async function requireDepartmentAccess(database: any, ctx: any, department: stri
   if (ctx.user.role !== "superviseur") throw new Error("Les collaborateurs ne peuvent pas gérer les fiches d’équipe");
   const assigned = await database.select({ id: supervisorTeams.id }).from(supervisorTeams).where(and(eq(supervisorTeams.supervisorUserId, ctx.user.id), eq(supervisorTeams.department, department), projectScope(supervisorTeams.projectId, ctx.user.activeProjectId))).limit(1);
   if (!assigned[0]) throw new Error("Ce département n’est pas attribué à votre équipe");
+}
+
+export async function finalizeCompletedLeaveDeductions() {
+  const database = await db.getDb();
+  if (!database) return { processed: 0, totalDays: 0 };
+  const rows = await database.select({ id: leaves.id, agentId: leaves.agentId, leaveType: leaves.leaveType, endDate: leaves.endDate, daysCount: leaves.daysCount }).from(leaves).where(and(eq(leaves.status, "approuvé"), isNull(leaves.deductedAt)));
+  let processed = 0;
+  let totalDays = 0;
+  for (const leave of rows as any[]) {
+    if (!periodHasEnded(leave.endDate)) continue;
+    if (consumesLeaveBalance(leave.leaveType)) {
+      await database.update(agents).set({ leaveBalanceDays: sql`GREATEST(0, ${agents.leaveBalanceDays} - ${Number(leave.daysCount)})` } as any).where(eq(agents.id, leave.agentId));
+    }
+    await database.update(leaves).set({ deductedAt: new Date() } as any).where(and(eq(leaves.id, leave.id), eq(leaves.status, "approuvé"), isNull(leaves.deductedAt)));
+    processed += 1;
+    totalDays += consumesLeaveBalance(leave.leaveType) ? Number(leave.daysCount) : 0;
+  }
+  return { processed, totalDays };
 }
 
 async function getRevenueVisibility(database: any, ctx: any) {
@@ -158,6 +224,17 @@ export const appRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
+    }),
+  }),
+  permissions: router({
+    current: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return { role: ctx.user.role, permissions: [] as PermissionKey[] };
+      if (ctx.user.role === "admin") return { role: ctx.user.role, permissions: [...PERMISSION_KEYS] as PermissionKey[] };
+      const overrides = await database.select({ permissionKey: rolePermissions.permissionKey, enabled: rolePermissions.enabled }).from(rolePermissions).where(eq(rolePermissions.role, ctx.user.role as RoleKey));
+      const overrideMap = new Map(overrides.map(item => [item.permissionKey, Boolean(item.enabled)]));
+      const permissions = PERMISSION_KEYS.filter(key => overrideMap.has(key) ? overrideMap.get(key) : DEFAULT_ROLE_PERMISSIONS[ctx.user.role as RoleKey].includes(key));
+      return { role: ctx.user.role, permissions };
     }),
   }),
 
@@ -348,14 +425,18 @@ export const appRouter = router({
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       await requirePermission(database, ctx, "hr.request.manage");
-      const existing = await database.select({ id: leaves.id, agentId: leaves.agentId }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
-      if (!existing[0]) throw new Error("Demande de congé introuvable");
-      await requireAgentAccess(database, ctx, existing[0].agentId);
-      await database.update(leaves).set({ status: input.status }).where(eq(leaves.id, input.id));
-      await database.update(tickets).set({ status: input.status === "en_attente" ? "en_cours" : input.status === "approuvé" ? "résolu" : "fermé" } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id)));
+      const existing = await findLeaveForProject(database, input.id, ctx.user.activeProjectId);
+      if (!existing) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing.agentId);
+      if (input.status === "approuvé") {
+        await approveLeaveRecord(database, input.id, ctx.user.id, ctx.user.activeProjectId);
+      } else {
+        await database.update(leaves).set({ status: input.status, approvedAt: null, approvedByUserId: null, canceledAt: null, canceledByUserId: null } as any).where(eq(leaves.id, input.id));
+        await database.update(tickets).set({ status: input.status === "en_attente" ? "en_cours" : "fermé" } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id), eq(tickets.agentId, existing.agentId)));
+      }
       return { success: true };
     }),
-    updateLeave: supervisorProcedure.input(z.object({
+    updateLeave: protectedProcedure.input(z.object({
       id: z.number().int().positive(),
       leaveType: z.string().trim().min(1),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date de début est invalide"),
@@ -365,14 +446,35 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await requirePermission(database, ctx, "hr.request.manage");
-      const existing = await database.select({ id: leaves.id, agentId: leaves.agentId }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
-      if (!existing[0]) throw new Error("Demande de congé introuvable");
-      await requireAgentAccess(database, ctx, existing[0].agentId);
-      await database.update(leaves).set({ leaveType: input.leaveType, startDate: input.startDate, endDate: input.endDate, daysCount: input.daysCount, reason: input.reason || null } as any).where(eq(leaves.id, input.id));
+      const canEdit = await hasPermission(database, ctx.user.role as RoleKey, "hr.request.edit");
+      const canManage = await hasPermission(database, ctx.user.role as RoleKey, "hr.request.manage");
+      if (!canEdit && !canManage) throw new Error("Permission insuffisante: hr.request.edit");
+      const existing = await findLeaveForProject(database, input.id, ctx.user.activeProjectId);
+      if (!existing) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing.agentId);
+      if (existing.deductedAt) throw new Error("Une demande décomptée en fin de période ne peut plus être modifiée");
+      if (existing.status === "annulé") throw new Error("Une demande annulée ne peut plus être modifiée");
+      await database.update(leaves).set({ leaveType: input.leaveType, startDate: input.startDate, endDate: input.endDate, daysCount: input.daysCount, reason: input.reason || null, status: "en_attente", approvedAt: null, approvedByUserId: null, canceledAt: null, canceledByUserId: null } as any).where(eq(leaves.id, input.id));
+      await database.update(tickets).set({ status: "en_cours", description: input.reason || `Demande modifiée du ${input.startDate} au ${input.endDate} (${input.daysCount} jour(s)).` } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id), eq(tickets.agentId, existing.agentId)));
       return { success: true };
     }),
-    deleteLeave: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+        cancelLeave: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const canCancel = await hasPermission(database, ctx.user.role as RoleKey, "hr.request.cancel");
+      const canManage = await hasPermission(database, ctx.user.role as RoleKey, "hr.request.manage");
+      if (!canCancel && !canManage) throw new Error("Permission insuffisante: hr.request.cancel");
+      const existing = await findLeaveForProject(database, input.id, ctx.user.activeProjectId);
+      if (!existing) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing.agentId);
+      if (existing.deductedAt) throw new Error("Une demande clôturée ne peut plus être annulée");
+      if (existing.status === "annulé") return { success: true };
+      await database.update(leaves).set({ status: "annulé", canceledAt: new Date(), canceledByUserId: ctx.user.id, approvedAt: null, approvedByUserId: null } as any).where(eq(leaves.id, input.id));
+      await database.update(tickets).set({ status: "fermé" } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id), eq(tickets.agentId, existing.agentId)));
+      return { success: true };
+    }),
+    deleteLeave: supervisorProcedure.input(z.object({
+ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       await requirePermission(database, ctx, "hr.request.manage");
@@ -486,15 +588,23 @@ export const appRouter = router({
       const existing = await database.select({ id: tickets.id, agentId: tickets.agentId, requestType: tickets.requestType, requestId: tickets.requestId }).from(tickets).where(eq(tickets.id, input.id)).limit(1);
       if (!existing[0]) throw new Error("Ticket introuvable");
       if (existing[0].agentId !== null) await requireAgentAccess(database, ctx, existing[0].agentId);
-      await database.update(tickets).set({ status: input.status }).where(eq(tickets.id, input.id));
       const requestId = existing[0].requestId;
       if (requestId && existing[0].requestType === "conge") {
-        const leaveStatus = input.status === "résolu" ? "approuvé" : input.status === "fermé" ? "refusé" : "en_attente";
-        await database.update(leaves).set({ status: leaveStatus } as any).where(eq(leaves.id, requestId));
-      }
-      if (requestId && existing[0].requestType === "avance") {
+        const leave = await findLeaveForProject(database, requestId, ctx.user.activeProjectId);
+        if (!leave) throw new Error("Demande de congé introuvable dans le projet actif");
+        if (input.status === "résolu") {
+          await approveLeaveRecord(database, requestId, ctx.user.id, ctx.user.activeProjectId);
+        } else {
+          const leaveStatus = input.status === "fermé" ? "refusé" : "en_attente";
+          await database.update(leaves).set({ status: leaveStatus, approvedAt: null, approvedByUserId: null } as any).where(eq(leaves.id, requestId));
+          await database.update(tickets).set({ status: input.status }).where(eq(tickets.id, input.id));
+        }
+      } else if (requestId && existing[0].requestType === "avance") {
         const advanceStatus = input.status === "résolu" ? "accordé" : input.status === "fermé" ? "refusé" : "demandé";
         await database.update(salaryAdvances).set({ status: advanceStatus } as any).where(eq(salaryAdvances.id, requestId));
+        await database.update(tickets).set({ status: input.status }).where(eq(tickets.id, input.id));
+      } else {
+        await database.update(tickets).set({ status: input.status }).where(eq(tickets.id, input.id));
       }
       return { success: true };
     }),

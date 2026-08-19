@@ -5,7 +5,8 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
-import { appRouter } from "../routers";
+import { appRouter, finalizeCompletedLeaveDeductions } from "../routers";
+import { sdk } from "./sdk";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -44,6 +45,25 @@ async function startServer() {
       createContext,
     })
   );
+  app.post("/api/scheduled/finalize-leaves", async (req, res) => {
+    const context = { url: req.originalUrl, taskUid: undefined as string | undefined };
+    try {
+      const user = await sdk.authenticateRequest(req);
+      context.taskUid = user.taskUid;
+      if (!user.isCron || !user.taskUid) {
+        return res.status(403).json({ error: "cron-only" });
+      }
+      const result = await finalizeCompletedLeaveDeductions();
+      return res.json({ ok: true, ...result });
+    } catch (error) {
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        context,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

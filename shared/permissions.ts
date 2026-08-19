@@ -11,6 +11,8 @@ export const PERMISSION_KEYS = [
   "hr.timeEntry.edit",
   "hr.timeEntry.delete",
   "hr.request.create",
+  "hr.request.edit",
+  "hr.request.cancel",
   "hr.request.manage",
   "tickets.create",
   "tickets.manage",
@@ -32,6 +34,8 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   "hr.timeEntry.edit": { label: "Modifier un pointage", description: "Corriger un pointage existant", group: "Ressources humaines" },
   "hr.timeEntry.delete": { label: "Supprimer un pointage", description: "Supprimer un pointage existant", group: "Ressources humaines" },
   "hr.request.create": { label: "Créer une demande RH", description: "Demander une avance, un congé ou une permission", group: "Ressources humaines" },
+  "hr.request.edit": { label: "Modifier ses demandes RH", description: "Modifier une demande de congé encore en attente", group: "Ressources humaines" },
+  "hr.request.cancel": { label: "Annuler ses demandes RH", description: "Annuler une demande de congé avant sa clôture", group: "Ressources humaines" },
   "hr.request.manage": { label: "Traiter les demandes RH", description: "Mettre à jour les statuts et suivre les demandes", group: "Ressources humaines" },
   "tickets.create": { label: "Créer un ticket", description: "Créer un ticket de suivi rattaché à son compte", group: "Tickets" },
   "tickets.manage": { label: "Gérer les tickets", description: "Mettre à jour les tickets de l’équipe", group: "Tickets" },
@@ -43,8 +47,8 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
 };
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]> = {
-  collaborateur: ["dashboard.view", "hr.self.view", "hr.timeEntry.create", "hr.request.create", "tickets.create"],
-  superviseur: ["dashboard.view", "dashboard.revenue.view", "hr.self.view", "hr.team.view", "hr.manage", "hr.timeEntry.create", "hr.timeEntry.edit", "hr.timeEntry.delete", "hr.request.create", "hr.request.manage", "tickets.create", "tickets.manage", "accounting.view", "crm.view", "billing.view", "stats.hr.view", "stats.ca.view"],
+  collaborateur: ["dashboard.view", "hr.self.view", "hr.timeEntry.create", "hr.request.create", "hr.request.edit", "hr.request.cancel", "tickets.create"],
+  superviseur: ["dashboard.view", "dashboard.revenue.view", "hr.self.view", "hr.team.view", "hr.manage", "hr.timeEntry.create", "hr.timeEntry.edit", "hr.timeEntry.delete", "hr.request.create", "hr.request.edit", "hr.request.cancel", "hr.request.manage", "tickets.create", "tickets.manage", "accounting.view", "crm.view", "billing.view", "stats.hr.view", "stats.ca.view"],
   admin: [...PERMISSION_KEYS],
 };
 

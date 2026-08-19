@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
+import { appRouter, finalizeCompletedLeaveDeductions } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
 import { vi } from "vitest";
@@ -185,8 +185,9 @@ type FakeDb = {
 
 function createFakeDb(selectResults: unknown[][]): FakeDb {
   const queue = [...selectResults];
-  const limitQuery = {
+  const limitQuery: any = {
     limit: vi.fn(async () => queue.shift() ?? []),
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve(queue.shift() ?? []).then(resolve, reject),
   };
   const whereQuery = {
     where: vi.fn(() => limitQuery),
@@ -417,13 +418,38 @@ describe("Synchronisation des tickets RH", () => {
 
   it("propage le statut d’un ticket congé ou avance vers la gestion RH", async () => {
     const caller = appRouter.createCaller(adminContext);
-    await withFakeDb([[{ id: 21, agentId: 4, requestType: "conge", requestId: 7 }]], async (database) => {
+    await withFakeDb([[{ id: 21, agentId: 4, requestType: "conge", requestId: 7 }], [{ id: 7, agentId: 4, leaveType: "Annuel", startDate: "2026-08-01", endDate: "2026-08-02", daysCount: 2, status: "en_attente", deductedAt: null, approvedAt: null, approvedByUserId: null, canceledAt: null, canceledByUserId: null, leaveBalanceDays: "20" }], [{ id: 7, agentId: 4, leaveType: "Annuel", startDate: "2026-08-01", endDate: "2026-08-02", daysCount: 2, status: "en_attente", deductedAt: null, approvedAt: null, approvedByUserId: null, canceledAt: null, canceledByUserId: null, leaveBalanceDays: "20" }]], async (database) => {
       await expect(caller.hr.updateTicketStatus({ id: 21, status: "résolu" })).resolves.toMatchObject({ success: true });
       expect(database.update).toHaveBeenCalledTimes(2);
     });
     await withFakeDb([[{ id: 22, agentId: 4, requestType: "avance", requestId: 8 }]], async (database) => {
       await expect(caller.hr.updateTicketStatus({ id: 22, status: "fermé" })).resolves.toMatchObject({ success: true });
       expect(database.update).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("décompte uniquement les congés approuvés dont la période est terminée", async () => {
+    await withFakeDb([[{ id: 31, agentId: 4, leaveType: "Annuel", endDate: "2026-08-01", daysCount: 3 }]], async (database) => {
+      const result = await finalizeCompletedLeaveDeductions();
+      expect(result).toMatchObject({ processed: 1, totalDays: 3 });
+      expect(database.update).toHaveBeenCalledTimes(2);
+    });
+
+    await withFakeDb([[{ id: 32, agentId: 4, leaveType: "Annuel", endDate: "2999-01-01", daysCount: 3 }]], async (database) => {
+      const result = await finalizeCompletedLeaveDeductions();
+      expect(result).toMatchObject({ processed: 0, totalDays: 0 });
+      expect(database.update).not.toHaveBeenCalled();
+    });
+  });
+
+  it("synchronise l’annulation d’un congé et bloque un congé déjà décompté", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    await withFakeDb([[{ id: 41, agentId: 4, status: "approuvé", deductedAt: null }], [{ id: 4, email: "agent@example.com", department: "Production" }]], async (database) => {
+      await expect(caller.hr.cancelLeave({ id: 41 })).resolves.toMatchObject({ success: true });
+      expect(database.update).toHaveBeenCalledTimes(2);
+    });
+    await withFakeDb([[{ id: 42, agentId: 4, status: "approuvé", deductedAt: new Date() }]], async () => {
+      await expect(caller.hr.cancelLeave({ id: 42 })).rejects.toThrow("clôturée");
     });
   });
 });
