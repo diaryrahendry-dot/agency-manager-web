@@ -1892,6 +1892,81 @@ export const appRouter = router({
     }),
   }),
 
+  // Module Prestataire Multi-Clients
+  provider: router({
+    listClientEnvironments: adminProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const projects = await database.select().from(agencyProjects);
+      const members = await database.select({ projectId: projectMembers.projectId, userId: projectMembers.userId, membershipRole: projectMembers.membershipRole, userName: users.name, userEmail: users.email }).from(projectMembers).leftJoin(users, eq(projectMembers.userId, users.id));
+      return projects.map(proj => ({
+        ...proj,
+        members: members.filter(m => m.projectId === proj.id),
+      }));
+    }),
+    createClientEnvironment: adminProcedure.input(z.object({
+      agencyName: z.string().trim().min(2, "Le nom de l’agence est obligatoire"),
+      clientContactName: z.string().trim().min(2, "Le nom du contact client est obligatoire"),
+      clientEmail: z.string().trim().email("L’email du client est invalide"),
+      managementTemplate: z.enum(PROJECT_TEMPLATE_KEYS).default("agence_complete"),
+      defaultCurrency: z.enum(["EUR", "MGA"]).default("MGA"),
+      jurisdiction: z.enum(["fr", "mg"]).default("fr"),
+      assignAsAdmin: z.boolean().default(true),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const slug = input.agencyName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
+      const duplicate = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      if (duplicate.length > 0) throw new Error("Un environnement existe déjà avec ce nom");
+
+      let [clientUser] = await database.select().from(users).where(eq(users.email, input.clientEmail)).limit(1);
+      if (!clientUser) {
+        const openId = `client:${Date.now()}:${input.clientEmail}`;
+        const invitationToken = randomUUID();
+        await database.insert(users).values({
+          openId,
+          name: input.clientContactName,
+          email: input.clientEmail,
+          loginMethod: "provider_invite",
+          role: "superviseur",
+          accountStatus: "invited",
+          invitationToken,
+        } as any);
+        [clientUser] = await database.select().from(users).where(eq(users.email, input.clientEmail)).limit(1);
+      }
+
+      await database.insert(agencyProjects).values({
+        name: input.agencyName,
+        slug,
+        description: `Environnement client administré pour ${input.clientContactName} (${input.clientEmail})`,
+        managementTemplate: input.managementTemplate,
+        defaultCurrency: input.defaultCurrency,
+        jurisdiction: input.jurisdiction,
+        createdBy: ctx.user.id,
+      } as any);
+
+      const [createdProj] = await database.select().from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      if (createdProj && clientUser) {
+        await database.insert(projectMembers).values({
+          projectId: createdProj.id,
+          userId: clientUser.id,
+          membershipRole: input.assignAsAdmin ? "admin" : "superviseur",
+        } as any);
+      }
+
+      return { success: true, projectId: createdProj?.id, slug };
+    }),
+    toggleEnvironmentLock: adminProcedure.input(z.object({
+      projectId: z.number().int().positive(),
+      locked: z.boolean(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.update(agencyProjects).set({ showRevenueDashboard: !input.locked } as any).where(eq(agencyProjects.id, input.projectId));
+      return { success: true };
+    }),
+  }),
+
   admin: router({
     listUsers: adminProcedure.query(async () => {
       const database = await db.getDb();

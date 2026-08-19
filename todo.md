@@ -206,3 +206,7 @@
 - [x] Créer une page d’accueil avec parcours d’intégration interactif (onboarding) guidant les nouveaux utilisateurs pas à pas
 - [x] Intégrer des étapes interactives mémorisées (création d’agence, choix du premier template, ajout d’un agent ou d’un client, premier pointage ou devis)
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Créer un espace de pilotage prestataire multi-clients pour administrer, créer et cloisonner les environnements clients
+- [x] Implémenter le contrôle d’accès renforcé, l’invitation sécurisée et le journal des modifications par client
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final

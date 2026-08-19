@@ -224,6 +224,35 @@ export default function Home() {
   const supervisorTeamsQuery = trpc.admin.listSupervisorTeams.useQuery({ supervisorUserId: selectedSupervisorId ?? undefined, projectId: activeProjectId }, { enabled: isAuthenticated && isAdmin });
   const preferencesQuery = trpc.preferences.get.useQuery(undefined, { enabled: isAuthenticated });
   const projectsQuery = trpc.projects.mine.useQuery(undefined, { enabled: isAuthenticated });
+  const providerEnvironmentsQuery = trpc.provider.listClientEnvironments.useQuery(undefined, { enabled: isAuthenticated && isAdmin });
+  const [isProviderClientOpen, setIsProviderClientOpen] = useState(false);
+  const [providerClientForm, setProviderClientForm] = useState({
+    agencyName: "",
+    clientContactName: "",
+    clientEmail: "",
+    managementTemplate: "agence_complete" as ProjectTemplateKey,
+    defaultCurrency: "MGA" as CurrencyCode,
+    jurisdiction: "fr" as "fr" | "mg",
+    assignAsAdmin: true,
+  });
+  const createProviderClientMutation = trpc.provider.createClientEnvironment.useMutation({
+    onSuccess: () => {
+      setIsProviderClientOpen(false);
+      setProviderClientForm({ agencyName: "", clientContactName: "", clientEmail: "", managementTemplate: "agence_complete", defaultCurrency: "MGA", jurisdiction: "fr", assignAsAdmin: true });
+      utils.provider.listClientEnvironments.invalidate();
+      utils.admin.listProjects.invalidate();
+      toast.success("Environnement client créé et invitation envoyée avec succès !");
+    },
+    onError: error => toast.error(`Erreur: ${error.message}`),
+  });
+  const toggleEnvironmentLockMutation = trpc.provider.toggleEnvironmentLock.useMutation({
+    onSuccess: () => {
+      utils.provider.listClientEnvironments.invalidate();
+      utils.admin.listProjects.invalidate();
+      toast.success("Confidentialité et verrouillage mis à jour !");
+    },
+    onError: error => toast.error(`Erreur: ${error.message}`),
+  });
 
   // États pour les modals de création
   const [isAgentOpen, setIsAgentOpen] = useState(false);
@@ -2545,6 +2574,91 @@ export default function Home() {
                 </Card>
               </div>
             </div>}
+
+            {isAdmin && <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/60 via-teal-50/40 to-sky-50/60 shadow-sm">
+              <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <Badge className="mb-2 bg-indigo-600 text-white font-semibold">Portail Prestataire Multi-Clients</Badge>
+                  <CardTitle className="flex items-center gap-2 text-xl"><Building2 className="h-6 w-6 text-indigo-600" /> Pilotage des environnements clients</CardTitle>
+                  <CardDescription>Créez, configurez et cloisonnez les espaces de gestion de vos clients avec des accès sécurisés et confidentiels.</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Dialog open={isProviderClientOpen} onOpenChange={setIsProviderClientOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-indigo-600 text-white shadow-sm hover:bg-indigo-500"><UserPlus className="mr-2 h-4 w-4" /> Créer un compte client</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-2xl bg-white">
+                      <DialogHeader>
+                        <DialogTitle>Provisionner un nouvel environnement client</DialogTitle>
+                        <DialogDescription>Créez un espace étanche et sécurisé pour votre client, avec envoi d’invitation et rôles managés.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-1.5"><Label>Nom de l’agence / entreprise cliente</Label><Input value={providerClientForm.agencyName} onChange={event => setProviderClientForm(current => ({ ...current, agencyName: event.target.value }))} placeholder="Ex: Studio Paris Création" autoFocus /></div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1.5"><Label>Nom du contact client</Label><Input value={providerClientForm.clientContactName} onChange={event => setProviderClientForm(current => ({ ...current, clientContactName: event.target.value }))} placeholder="Nom et prénom" /></div>
+                          <div className="space-y-1.5"><Label>Email de connexion client</Label><Input type="email" value={providerClientForm.clientEmail} onChange={event => setProviderClientForm(current => ({ ...current, clientEmail: event.target.value }))} placeholder="client@entreprise.fr" /></div>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1.5"><Label>Devise par défaut</Label><Select value={providerClientForm.defaultCurrency} onValueChange={value => setProviderClientForm(current => ({ ...current, defaultCurrency: value as CurrencyCode }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div>
+                          <div className="space-y-1.5"><Label>Juridiction documentaire</Label><Select value={providerClientForm.jurisdiction} onValueChange={value => setProviderClientForm(current => ({ ...current, jurisdiction: value as typeof current.jurisdiction }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fr">France (mentions légales FR)</SelectItem><SelectItem value="mg">Madagascar (mentions MG)</SelectItem></SelectContent></Select></div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Template de gestion initial</Label>
+                          <Select value={providerClientForm.managementTemplate} onValueChange={value => setProviderClientForm(current => ({ ...current, managementTemplate: value as ProjectTemplateKey }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_TEMPLATES.map(t => <SelectItem key={t.key} value={t.key}>{t.label} — {t.shortDescription}</SelectItem>)}</SelectContent></Select>
+                        </div>
+                        <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-white p-3">
+                          <div><p className="text-sm font-semibold text-slate-900">Administrateur de l’espace</p><p className="text-xs text-slate-500">Donner les pleins pouvoirs au client sur son environnement</p></div>
+                          <Switch checked={providerClientForm.assignAsAdmin} onCheckedChange={checked => setProviderClientForm(current => ({ ...current, assignAsAdmin: checked }))} />
+                        </div>
+                      </div>
+                      <DialogFooter><Button variant="outline" onClick={() => setIsProviderClientOpen(false)}>Annuler</Button><Button className="bg-indigo-600 text-white hover:bg-indigo-500" disabled={createProviderClientMutation.isPending || !providerClientForm.agencyName.trim() || !providerClientForm.clientEmail.trim()} onClick={() => createProviderClientMutation.mutate(providerClientForm)}>{createProviderClientMutation.isPending ? "Création…" : "Créer et inviter le client"}</Button></DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {providerEnvironmentsQuery.data?.map(env => (
+                    <div key={env.id} className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-900">{env.name}</p>
+                          <p className="text-xs text-slate-500">Slug : /{env.slug}</p>
+                        </div>
+                        <Badge variant={env.status === "actif" ? "default" : "secondary"}>{env.status}</Badge>
+                      </div>
+                      <p className="text-xs text-slate-600">{env.description || "Environnement client managé"}</p>
+                      <div className="space-y-1.5 rounded-xl bg-slate-50 p-3 text-xs">
+                        <p className="font-semibold text-slate-700">Membres rattachés :</p>
+                        {env.members && env.members.length > 0 ? (
+                          env.members.map(m => (
+                            <div key={m.userId} className="flex items-center justify-between text-slate-600">
+                              <span>{m.userName || m.userEmail}</span>
+                              <Badge variant="outline" className="text-[10px] capitalize">{m.membershipRole}</Badge>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-slate-400 italic">Aucun membre rattaché</p>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between pt-2">
+                        <Button variant="outline" size="sm" onClick={() => setActiveProjectMutation.mutate({ projectId: env.id })}>
+                          Basculer dans l’espace
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-rose-700 hover:bg-rose-50" onClick={() => toggleEnvironmentLockMutation.mutate({ projectId: env.id, locked: env.showRevenueDashboard === false })}>
+                          {env.showRevenueDashboard === false ? "Déverrouiller" : "Confidentialité"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {(!providerEnvironmentsQuery.data || providerEnvironmentsQuery.data.length === 0) && (
+                    <div className="rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-8 text-center text-sm text-slate-500 md:col-span-2 lg:col-span-3">
+                      Aucun environnement client créé. Cliquez sur « Créer un compte client » pour déployer votre premier espace managé.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>}
 
             {isAdmin && <Card className="border-slate-200 shadow-sm">
               <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
