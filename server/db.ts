@@ -1,11 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { 
+  InsertUser, users, agents, timeEntries, leaves, salaryAdvances, contracts, 
+  tickets, cashTransactions, leads, clients, clientInteractions, documents, 
+  quotes, invoices 
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -79,14 +82,103 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Helpers RH
+export async function getAgents() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(agents).orderBy(desc(agents.id));
+}
+
+export async function getAgent(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const res = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+  return res[0];
+}
+
+export async function getTimeEntries(agentId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (agentId) {
+    return db.select().from(timeEntries).where(eq(timeEntries.agentId, agentId)).orderBy(desc(timeEntries.date));
+  }
+  return db.select().from(timeEntries).orderBy(desc(timeEntries.date));
+}
+
+export async function getLeaves() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leaves).orderBy(desc(leaves.id));
+}
+
+export async function getSalaryAdvances() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(salaryAdvances).orderBy(desc(salaryAdvances.id));
+}
+
+export async function getContracts() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(contracts).orderBy(desc(contracts.id));
+}
+
+export async function getTickets() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tickets).orderBy(desc(tickets.id));
+}
+
+// Helpers Compta
+export async function getCashTransactions() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(cashTransactions).orderBy(desc(cashTransactions.date));
+}
+
+// Helpers CRM Leads
+export async function getLeads() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leads).orderBy(desc(leads.id));
+}
+
+// Helpers Clients
+export async function getClients() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clients).orderBy(desc(clients.id));
+}
+
+export async function getClientInteractions(clientId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (clientId) {
+    return db.select().from(clientInteractions).where(eq(clientInteractions.clientId, clientId)).orderBy(desc(clientInteractions.date));
+  }
+  return db.select().from(clientInteractions).orderBy(desc(clientInteractions.date));
+}
+
+export async function getDocuments(entityId?: number, category?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(documents).orderBy(desc(documents.id));
+}
+
+// Helpers Facturation & Devis
+export async function getQuotes() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(quotes).orderBy(desc(quotes.id));
+}
+
+export async function getInvoices() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(invoices).orderBy(desc(invoices.id));
+}
