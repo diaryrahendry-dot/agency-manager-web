@@ -154,5 +154,21 @@
 - [x] Transmettre la devise et la juridiction du formulaire dans la mutation de création projet
 - [x] Ouvrir le modal « Nouveau projet » en session authentifiée sur tablette puis mobile et vérifier réellement son rendu, son scroll interne et l’accessibilité de ses actions
 - [x] Capturer ou consigner des preuves de la vérification responsive spécifique du modal « Nouveau projet » sur tablette et mobile avant de marquer cette tâche comme terminée
-- [ ] Sauvegarder un nouveau checkpoint après les modifications du backoffice projet, du template de gestion, de la devise/juridiction et les vérifications responsive authentifiées
-- [ ] Joindre dans le checkpoint la version exacte contenant le correctif de soumission defaultCurrency et jurisdiction pour que l’état livrable soit restaurable
+- [x] Sauvegarder un nouveau checkpoint après les modifications du backoffice projet, du template de gestion, de la devise/juridiction et les vérifications responsive authentifiées
+- [x] Joindre dans le checkpoint la version exacte contenant le correctif de soumission defaultCurrency et jurisdiction pour que l’état livrable soit restaurable
+- [x] Ajouter une configuration admin des permissions pour chaque rôle Collaborateur, Superviseur et Admin
+- [x] Limiter le dashboard collaborateur à ses propres données et à ses demandes RH
+- [x] Désactiver côté frontend les requêtes globales comptabilité/CRM/clients/facturation/statistiques pour les collaborateurs
+- [x] Rendre les pointages créés par un collaborateur non modifiables et non supprimables
+- [x] Créer les demandes d’avance, de congé et d’exception sous forme de tickets rattachés au compte collaborateur
+- [x] Synchroniser automatiquement les tickets RH avec les données de gestion RH et leurs statuts
+- [x] Supprimer le doublon de ticket de congé créé par l’ancien callback frontend après la création automatique serveur
+- [x] Synchroniser les statuts d’un ticket RH modifié directement avec la demande de congé ou d’avance associée
+- [x] Ajouter les tests RBAC, d’isolement collaborateur, d’immuabilité des pointages et de synchronisation des tickets
+- [x] Vérifier les interfaces admin/collaborateur en responsive et sauvegarder un checkpoint
+- [x] Permettre à l’admin de masquer les indicateurs et données de chiffre d’affaires depuis le pilotage
+- [x] Attribuer les équipes aux superviseurs et limiter leur accès aux données de leur équipe
+- [x] Ajouter les tests de visibilité CA masquée et de scoping superviseur par équipe
+- [x] Vérification par comptes superviseur/collaborateur volontairement sautée à la demande ; preuve admin, protections serveur, tests et vérifications responsive disponibles
+- [x] Documenter la limite de validation : seuls le compte admin et les protections serveur/tests sont vérifiés, sans création de comptes superviseur/collaborateur supplémentaires
+- [x] Sauvegarder un checkpoint restaurable après validation finale du RBAC, du dashboard collaborateur et des tickets RH

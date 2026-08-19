@@ -27,6 +27,7 @@ import { buildCommercialDocumentHtml, getCommercialTableColumnCount, type Commer
 import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components/CommercialMGAColumns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PROJECT_TEMPLATES, getProjectTemplate, type ProjectTemplateKey } from "@shared/projectTemplates";
+import { PERMISSION_GROUPS, PERMISSION_KEYS, PERMISSION_LABELS, type PermissionKey, type RoleKey } from "@shared/permissions";
 
 const WORKDAY_HOURS = 8;
 
@@ -116,7 +117,16 @@ const ACCOUNTING_EISENHOWER_QUADRANTS = [
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const isCollaborator = user?.role === "collaborateur";
+  const canAccessAgencyModules = Boolean(user) && !isCollaborator;
+  useEffect(() => {
+    if (isCollaborator && activeTab !== "dashboard") setActiveTab("dashboard");
+  }, [activeTab, isCollaborator]);
   const openDashboardModule = (tab: string) => {
+    if (isCollaborator && tab !== "dashboard") {
+      toast.error("Votre espace collaborateur est limité aux demandes RH personnelles.");
+      return;
+    }
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -131,14 +141,14 @@ export default function Home() {
   const contractsQuery = trpc.hr.listContracts.useQuery(undefined, { enabled: isAuthenticated });
   const ticketsQuery = trpc.hr.listTickets.useQuery(undefined, { enabled: isAuthenticated });
   
-  const transactionsQuery = trpc.accounting.listTransactions.useQuery(undefined, { enabled: isAuthenticated });
-  const accountingSummary = trpc.accounting.summary.useQuery(undefined, { enabled: isAuthenticated });
-  const revenueReportQuery = trpc.accounting.revenueReport.useQuery(undefined, { enabled: isAuthenticated });
-  const automaticReportQuery = trpc.accounting.automaticReport.useQuery(undefined, { enabled: isAuthenticated });
+  const transactionsQuery = trpc.accounting.listTransactions.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const accountingSummary = trpc.accounting.summary.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const revenueReportQuery = trpc.accounting.revenueReport.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const automaticReportQuery = trpc.accounting.automaticReport.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
   const [reportMonth, setReportMonth] = useState("2026-08");
-  const monthlyReportQuery = trpc.accounting.monthlyReport.useQuery({ month: reportMonth }, { enabled: isAuthenticated });
-  const dynamicStatsQuery = trpc.planning.listDynamicStats.useQuery(undefined, { enabled: isAuthenticated });
-  const statFilterOptionsQuery = trpc.planning.statFilterOptions.useQuery(undefined, { enabled: isAuthenticated });
+  const monthlyReportQuery = trpc.accounting.monthlyReport.useQuery({ month: reportMonth }, { enabled: isAuthenticated && canAccessAgencyModules });
+  const dynamicStatsQuery = trpc.planning.listDynamicStats.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const statFilterOptionsQuery = trpc.planning.statFilterOptions.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
   const [accountingStatsView, setAccountingStatsView] = useState<"sheet" | "gantt" | "eisenhower">("sheet");
   const [accountingStatFilters, setAccountingStatFilters] = useState({ monthKey: "", type: "tous" as "tous" | "entrée" | "sortie", category: "" });
   const accountingStatsInput = useMemo(() => ({
@@ -146,16 +156,16 @@ export default function Home() {
     type: accountingStatFilters.type,
     category: accountingStatFilters.category || undefined,
   }), [accountingStatFilters]);
-  const accountingStatisticsQuery = trpc.planning.accountingStatistics.useQuery(accountingStatsInput, { enabled: isAuthenticated });
+  const accountingStatisticsQuery = trpc.planning.accountingStatistics.useQuery(accountingStatsInput, { enabled: isAuthenticated && canAccessAgencyModules });
   const [hrStatFilters, setHrStatFilters] = useState({ fromMonth: "2026-08", toMonth: "2026-08", agentId: "all", department: "all" });
   const [hrGroupView, setHrGroupView] = useState<"department" | "agent">("department");
   const hrStatisticsInput = useMemo(() => ({ fromMonth: hrStatFilters.fromMonth || undefined, toMonth: hrStatFilters.toMonth || undefined, agentId: hrStatFilters.agentId === "all" ? undefined : Number(hrStatFilters.agentId), department: hrStatFilters.department === "all" ? undefined : hrStatFilters.department }), [hrStatFilters]);
-  const hrStatisticsQuery = trpc.planning.hrStatistics.useQuery(hrStatisticsInput, { enabled: isAuthenticated });
+  const hrStatisticsQuery = trpc.planning.hrStatistics.useQuery(hrStatisticsInput, { enabled: isAuthenticated && canAccessAgencyModules });
   const [caStatFilters, setCaStatFilters] = useState({ fromMonth: "2026-08", toMonth: "2026-08", clientId: "all", serviceName: "all", status: "tous" });
   const [caBreakdown, setCaBreakdown] = useState<"period" | "client" | "service" | "status">("period");
   const caStatisticsInput = useMemo(() => ({ fromMonth: caStatFilters.fromMonth || undefined, toMonth: caStatFilters.toMonth || undefined, clientId: caStatFilters.clientId === "all" ? undefined : Number(caStatFilters.clientId), serviceName: caStatFilters.serviceName === "all" ? undefined : caStatFilters.serviceName, status: caStatFilters.status as "tous" | "encaissée" | "en retard" | "annulée" | "autre" }), [caStatFilters]);
-  const caStatisticsQuery = trpc.planning.caStatistics.useQuery(caStatisticsInput, { enabled: isAuthenticated });
-  const budgetSheetsQuery = trpc.planning.listBudgetSheets.useQuery(undefined, { enabled: isAuthenticated });
+  const caStatisticsQuery = trpc.planning.caStatistics.useQuery(caStatisticsInput, { enabled: isAuthenticated && canAccessAgencyModules });
+  const budgetSheetsQuery = trpc.planning.listBudgetSheets.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
 
   const getAgentMonthlySummary = (agentId: number) => {
     const monthEntries = (timeEntriesQuery.data || []).filter(entry => entry.agentId === agentId && String(entry.date).slice(0, 7) === reportMonth);
@@ -177,20 +187,27 @@ export default function Home() {
   const monthlyWorkedHours = (timeEntriesQuery.data || []).filter(entry => String(entry.date).slice(0, 7) === reportMonth && (entry.status === "présent" || entry.status === "retard")).reduce((total, entry) => total + Number(entry.hoursWorked), 0);
   const monthlyWorkedDays = monthlyWorkedHours / WORKDAY_HOURS;
   
-  const leadsQuery = trpc.crm.listLeads.useQuery(undefined, { enabled: isAuthenticated });
+  const leadsQuery = trpc.crm.listLeads.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
   
-  const clientsQuery = trpc.clientsModule.listClients.useQuery(undefined, { enabled: isAuthenticated });
-  const interactionsQuery = trpc.clientsModule.listInteractions.useQuery(undefined, { enabled: isAuthenticated });
-  const documentsQuery = trpc.clientsModule.listDocuments.useQuery(undefined, { enabled: isAuthenticated });
+  const clientsQuery = trpc.clientsModule.listClients.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const interactionsQuery = trpc.clientsModule.listInteractions.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const documentsQuery = trpc.clientsModule.listDocuments.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
   
-  const catalogItemsQuery = trpc.billing.listCatalogItems.useQuery(undefined, { enabled: isAuthenticated });
-  const quotesQuery = trpc.billing.listQuotes.useQuery(undefined, { enabled: isAuthenticated });
-  const invoicesQuery = trpc.billing.listInvoices.useQuery(undefined, { enabled: isAuthenticated });
-  const nextInvoiceNumberQuery = trpc.billing.nextInvoiceNumber.useQuery(undefined, { enabled: isAuthenticated });
-  const nextQuoteNumberQuery = trpc.billing.nextQuoteNumber.useQuery(undefined, { enabled: isAuthenticated });
+  const catalogItemsQuery = trpc.billing.listCatalogItems.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const quotesQuery = trpc.billing.listQuotes.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const invoicesQuery = trpc.billing.listInvoices.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const nextInvoiceNumberQuery = trpc.billing.nextInvoiceNumber.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const nextQuoteNumberQuery = trpc.billing.nextQuoteNumber.useQuery(undefined, { enabled: isAuthenticated && canAccessAgencyModules });
+  const activeProjectIdState = useState<number | null>(null);
+  const [activeProjectId, setActiveProjectId] = activeProjectIdState;
+  const [permissionsRole, setPermissionsRole] = useState<RoleKey>("collaborateur");
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState<number | null>(null);
+  const [supervisorDepartment, setSupervisorDepartment] = useState("");
   const isAdmin = user?.role === "admin";
   const adminUsersQuery = trpc.admin.listUsers.useQuery(undefined, { enabled: isAuthenticated && isAdmin });
   const adminProjectsQuery = trpc.admin.listProjects.useQuery(undefined, { enabled: isAuthenticated && isAdmin });
+  const rolePermissionsQuery = trpc.admin.getRolePermissions.useQuery(undefined, { enabled: isAuthenticated && isAdmin });
+  const supervisorTeamsQuery = trpc.admin.listSupervisorTeams.useQuery({ supervisorUserId: selectedSupervisorId ?? undefined, projectId: activeProjectId }, { enabled: isAuthenticated && isAdmin });
   const preferencesQuery = trpc.preferences.get.useQuery(undefined, { enabled: isAuthenticated });
   const projectsQuery = trpc.projects.mine.useQuery(undefined, { enabled: isAuthenticated });
 
@@ -246,7 +263,6 @@ export default function Home() {
   const [isQuoteOpen, setIsQuoteOpen] = useState(false);
   const [eurToMgaRate, setEurToMgaRate] = useState(String(DEFAULT_EUR_TO_MGA));
   const [showMGAEquivalent, setShowMGAEquivalent] = useState(true);
-  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
   const [invoiceLines, setInvoiceLines] = useState<BillingLine[]>([{ ...emptyBillingLine("EUR"), label: "Prestation conseil", quantity: "1", unitPrice: "2400" }]);
   const [quoteLines, setQuoteLines] = useState<BillingLine[]>([{ ...emptyBillingLine("EUR"), label: "Prestation conseil", quantity: "1", unitPrice: "2400" }]);
@@ -273,6 +289,7 @@ export default function Home() {
   }, [preferencesQuery.data]);
 
   const currentEurToMgaRate = Number(eurToMgaRate) > 0 ? Number(eurToMgaRate) : DEFAULT_EUR_TO_MGA;
+  const canViewRevenueDashboard = canAccessAgencyModules && preferencesQuery.data?.showRevenueDashboard !== false;
   const toStoredEur = (mgaValue: string) => convertMgaToEur(Number(mgaValue), currentEurToMgaRate).toFixed(2);
 
   const openAgentEdit = (agent: NonNullable<typeof agentsQuery.data>[number]) => {
@@ -363,6 +380,39 @@ export default function Home() {
       utils.admin.listProjects.invalidate();
     },
     onError: (err) => toast.error("Modification du projet impossible : " + err.message),
+  });
+  const updateRolePermissionMutation = trpc.admin.updateRolePermission.useMutation({
+    onSuccess: () => {
+      toast.success("Permission enregistrée.");
+      utils.admin.getRolePermissions.invalidate();
+    },
+    onError: (err) => toast.error("Permission non enregistrée : " + err.message),
+  });
+  const assignSupervisorTeamMutation = trpc.admin.assignSupervisorTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Équipe attribuée au superviseur.");
+      setSupervisorDepartment("");
+      utils.admin.listSupervisorTeams.invalidate();
+    },
+    onError: (err) => toast.error("Attribution impossible : " + err.message),
+  });
+  const removeSupervisorTeamMutation = trpc.admin.removeSupervisorTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Équipe retirée.");
+      utils.admin.listSupervisorTeams.invalidate();
+    },
+    onError: (err) => toast.error("Suppression impossible : " + err.message),
+  });
+  const updateRevenueVisibilityMutation = trpc.admin.updateRevenueVisibility.useMutation({
+    onSuccess: () => {
+      toast.success("Visibilité du CA mise à jour.");
+      utils.admin.listProjects.invalidate();
+      utils.preferences.get.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+    },
+    onError: (err) => toast.error("Visibilité du CA non modifiée : " + err.message),
   });
 
   const updateAgentMutation = trpc.hr.updateAgent.useMutation({
@@ -481,19 +531,12 @@ export default function Home() {
   });
 
   const createLeaveMutation = trpc.hr.createLeave.useMutation({
-    onSuccess: (data, variables) => {
+    onSuccess: () => {
       toast.success("Demande de congé enregistrée et ticket associé créé !");
       setIsLeaveOpen(false);
       utils.hr.listLeaves.invalidate();
+      utils.hr.listTickets.invalidate();
       utils.accounting.monthlyReport.invalidate();
-      createTicketMutation.mutate({
-        agentId: variables.agentId,
-        title: `Demande de congé (${variables.leaveType}) - ${variables.daysCount} jour(s)`,
-        description: `Période : du ${variables.startDate} au ${variables.endDate}. Motif : ${variables.reason || 'Non spécifié'}`,
-        priority: "normale",
-        category: "Demande de congé",
-        __fromLeave: true,
-      } as any);
     },
     onError: (err) => toast.error("Impossible d’enregistrer le congé : " + err.message),
   });
@@ -1008,40 +1051,41 @@ export default function Home() {
               <TabsTrigger value="dashboard" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <TrendingUp className="w-4 h-4 mr-2" /> Tableau de Bord
               </TabsTrigger>
-              <TabsTrigger value="hr" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="hr" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Users className="w-4 h-4 mr-2" /> RH & Agents
-              </TabsTrigger>
-              <TabsTrigger value="accounting" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="accounting" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <DollarSign className="w-4 h-4 mr-2" /> Comptabilité
-              </TabsTrigger>
-              <TabsTrigger value="crm" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="crm" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Kanban className="w-4 h-4 mr-2" /> CRM Leads
-              </TabsTrigger>
-              <TabsTrigger value="clients" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="clients" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Building2 className="w-4 h-4 mr-2" /> Base Clients
-              </TabsTrigger>
-              <TabsTrigger value="catalog" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="catalog" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Briefcase className="w-4 h-4 mr-2" /> Catalogue
-              </TabsTrigger>
-              <TabsTrigger value="billing" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="billing" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <FileText className="w-4 h-4 mr-2" /> Devis & Factures
-              </TabsTrigger>
-              <TabsTrigger value="stats" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="stats" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <FileSpreadsheet className="w-4 h-4 mr-2" /> Statistiques
-              </TabsTrigger>
-              <TabsTrigger value="budget" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="budget" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <WalletCards className="w-4 h-4 mr-2" /> Budget Planner
-              </TabsTrigger>
-              <TabsTrigger value="settings" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              </TabsTrigger>}
+              {!isCollaborator && <TabsTrigger value="settings" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Settings className="w-4 h-4 mr-2" /> Paramètres{isAdmin ? " · Admin" : ""}
-              </TabsTrigger>
+              </TabsTrigger>}
             </TabsList>
           </div>
 
           {/* TABLEAU DE BORD */}
           <TabsContent value="dashboard" className="space-y-6">
+            {isCollaborator && <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-indigo-600" /> Mon espace collaborateur</CardTitle><CardDescription>Un espace personnel pour enregistrer votre journée et transmettre vos demandes au suivi RH.</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Pointages</p><p className="text-xl font-bold text-indigo-700">{timeEntriesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Congés</p><p className="text-xl font-bold text-emerald-700">{leavesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Avances</p><p className="text-xl font-bold text-amber-700">{advancesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Tickets</p><p className="text-xl font-bold text-rose-700">{ticketsQuery.data?.length || 0}</p></div></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Button className="bg-indigo-600 text-white hover:bg-indigo-500" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); setIsTimeEntryOpen(true); }}><ClipboardCheck className="mr-2 h-4 w-4" /> Nouveau pointage</Button><Button variant="outline" className="border-amber-200 text-amber-800 hover:bg-amber-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setAdvanceForm(form => ({ ...form, agentId })); setIsAdvanceOpen(true); }}><WalletCards className="mr-2 h-4 w-4" /> Demander une avance</Button><Button variant="outline" className="border-emerald-200 text-emerald-800 hover:bg-emerald-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setLeaveForm(form => ({ ...form, agentId })); setIsLeaveOpen(true); }}><Calendar className="mr-2 h-4 w-4" /> Demander un congé</Button><Button variant="outline" className="border-rose-200 text-rose-800 hover:bg-rose-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setTicketForm(form => ({ ...form, agentId, title: "", description: "", category: "Demande exceptionnelle" })); setIsTicketOpen(true); }}><Ticket className="mr-2 h-4 w-4" /> Créer un ticket</Button></div><p className="text-xs text-slate-500">Les pointages sont verrouillés après création. Les demandes de congé, d’avance et d’exception sont automatiquement rattachées à votre compte et transmises au suivi RH.</p></CardContent></Card>}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité depuis le chiffre d’affaires" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
+              {canViewRevenueDashboard && <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité depuis le chiffre d’affaires" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Chiffre d’Affaires Encaissé</CardTitle>
                   <ArrowUpRight className="w-5 h-5 text-emerald-600" />
@@ -1052,7 +1096,7 @@ export default function Home() {
                   </div>
                   <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-emerald-700 hover:bg-transparent hover:text-emerald-900" onClick={event => { event.stopPropagation(); openDashboardModule("accounting"); }}>Voir la comptabilité <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
-              </Card>
+              </Card>}
               <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir les mouvements de caisse" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Trésorerie / Solde Caisse</CardTitle>
@@ -1092,6 +1136,7 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {canViewRevenueDashboard && <>
               <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité et le détail du chiffre d’affaires mensuel" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader>
                   <CardTitle>Analyse du CA mensuel</CardTitle>
@@ -1155,7 +1200,7 @@ export default function Home() {
                   <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Factures du mois</p><p className="text-xl font-bold text-indigo-700">{automaticReportQuery.data?.invoicesCount || 0}</p></div>
                   <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">À relancer</p><p className="text-xl font-bold text-amber-600">{automaticReportQuery.data?.unpaidCount || 0}</p></div>
                 </CardContent>
-              </Card>
+              </Card></>}
               <Card className="border-slate-200 shadow-sm bg-white lg:col-span-2">
                 <CardHeader className="pb-3"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Reporting intelligent par section</CardTitle><CardDescription>Analyse mensuelle de chaque pôle de l’agence à partir des données enregistrées.</CardDescription></div><div className="flex items-center gap-2"><Label htmlFor="report-month" className="text-xs text-slate-500">Période</Label><Input id="report-month" type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} className="w-40 bg-white" /></div></div></CardHeader>
                 <CardContent>{monthlyReportQuery.isLoading ? <div className="flex items-center justify-center py-8 text-sm text-slate-500"><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Calcul du reporting mensuel…</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">{[
@@ -2225,6 +2270,45 @@ export default function Home() {
                 <Card className="border-amber-200 bg-amber-50/50 shadow-sm"><CardHeader><CardTitle className="text-amber-900">Administration restreinte</CardTitle><CardDescription className="text-amber-800">La création de comptes, la modification des accès et la création de projets sont réservées aux administrateurs.</CardDescription></CardHeader><CardContent><p className="text-sm text-amber-900">Contactez un administrateur pour demander une évolution de votre rôle ou un accès à un nouveau projet.</p></CardContent></Card>
               )}
             </div>
+
+            {isAdmin && <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <Card className="border-indigo-100 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-indigo-600" /> Permissions par rôle</CardTitle>
+                  <CardDescription>Définissez précisément les modules et actions accessibles aux collaborateurs, superviseurs et administrateurs.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="max-w-xs space-y-1.5"><Label>Rôle à configurer</Label><Select value={permissionsRole} onValueChange={value => setPermissionsRole(value as RoleKey)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="collaborateur">Collaborateur</SelectItem><SelectItem value="superviseur">Superviseur</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select></div>
+                  <div className="space-y-4">
+                    {PERMISSION_GROUPS.map(group => <div key={group} className="space-y-2"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{group}</p><div className="divide-y rounded-xl border border-slate-200 bg-white">{PERMISSION_KEYS.filter(permissionKey => PERMISSION_LABELS[permissionKey].group === group).map(permissionKey => { const permission = rolePermissionsQuery.data?.find(row => row.role === permissionsRole && row.permissionKey === permissionKey); const locked = permissionsRole === "admin"; return <div key={permissionKey} className="flex items-center justify-between gap-4 p-3"><div className="min-w-0"><p className="text-sm font-semibold text-slate-900">{PERMISSION_LABELS[permissionKey].label}</p><p className="text-xs text-slate-500">{PERMISSION_LABELS[permissionKey].description}</p></div><Switch checked={Boolean(permission?.enabled)} disabled={locked || updateRolePermissionMutation.isPending} onCheckedChange={enabled => updateRolePermissionMutation.mutate({ role: permissionsRole, permissionKey, enabled })} aria-label={`${PERMISSION_LABELS[permissionKey].label} pour ${permissionsRole}`} /></div>; })}</div></div>)}
+                  </div>
+                  {permissionsRole === "admin" && <p className="rounded-xl bg-indigo-50 p-3 text-xs text-indigo-800">Les droits administrateur restent actifs pour éviter de verrouiller le backoffice.</p>}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-6">
+                <Card className="border-amber-100 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-amber-600" /> Visibilité du CA dans le pilotage</CardTitle>
+                    <CardDescription>Masquez les indicateurs et graphiques de chiffre d’affaires projet par projet.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">{adminProjectsQuery.data?.map(project => <div key={project.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{project.name}</p><p className="text-xs text-slate-500">{project.showRevenueDashboard === false ? "CA masqué dans le pilotage" : "CA visible dans le pilotage"}</p></div><Switch checked={project.showRevenueDashboard !== false} disabled={updateRevenueVisibilityMutation.isPending} onCheckedChange={showRevenueDashboard => updateRevenueVisibilityMutation.mutate({ projectId: project.id, showRevenueDashboard })} aria-label={`Visibilité du CA pour ${project.name}`} /></div>)}{(!adminProjectsQuery.data || adminProjectsQuery.data.length === 0) && <p className="text-sm text-slate-500">Créez d’abord un projet pour configurer la visibilité du CA.</p>}</CardContent>
+                </Card>
+
+                <Card className="border-emerald-100 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-emerald-600" /> Équipes des superviseurs</CardTitle>
+                    <CardDescription>Attribuez un ou plusieurs départements. Le superviseur ne verra ensuite que les données RH de ces équipes.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-1.5"><Label>Superviseur</Label><Select value={selectedSupervisorId ? String(selectedSupervisorId) : "none"} onValueChange={value => setSelectedSupervisorId(value === "none" ? null : Number(value))}><SelectTrigger><SelectValue placeholder="Choisir un superviseur" /></SelectTrigger><SelectContent><SelectItem value="none">Sélectionner un superviseur</SelectItem>{adminUsersQuery.data?.filter(account => account.role === "superviseur").map(account => <SelectItem key={account.id} value={String(account.id)}>{account.name || account.email || `Compte #${account.id}`}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={supervisorDepartment} onChange={event => setSupervisorDepartment(event.target.value)} placeholder="Département ou équipe" disabled={!selectedSupervisorId} /><Button className="bg-emerald-600 text-white hover:bg-emerald-500" disabled={!selectedSupervisorId || !supervisorDepartment.trim() || assignSupervisorTeamMutation.isPending} onClick={() => selectedSupervisorId && assignSupervisorTeamMutation.mutate({ supervisorUserId: selectedSupervisorId, projectId: activeProjectId, department: supervisorDepartment.trim() })}>Attribuer</Button></div>
+                    <p className="text-xs text-slate-500">Périmètre : {activeProjectId ? `projet actif #${activeProjectId}` : "équipes globales"}.</p>
+                    <div className="space-y-2">{supervisorTeamsQuery.data?.map(team => <div key={team.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"><div><p className="text-sm font-semibold text-slate-900">{team.department}</p><p className="text-xs text-slate-500">{team.projectId ? `Projet #${team.projectId}` : "Tous les projets"}</p></div><Button variant="ghost" size="sm" className="text-rose-700 hover:bg-rose-50" disabled={removeSupervisorTeamMutation.isPending} onClick={() => removeSupervisorTeamMutation.mutate({ id: team.id })}>Retirer</Button></div>)}{selectedSupervisorId && (!supervisorTeamsQuery.data || supervisorTeamsQuery.data.length === 0) && <p className="text-sm text-slate-500">Aucune équipe attribuée à ce superviseur pour ce périmètre.</p>}</div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>}
 
             {isAdmin && <Card className="border-slate-200 shadow-sm">
               <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

@@ -22,3 +22,15 @@ describe("navigation interactive du dashboard", () => {
     expect(source).toContain("overflow-x-hidden");
   });
 });
+
+
+describe("isolation du dashboard collaborateur", () => {
+  it("désactive les modules globaux et le chiffre d’affaires pour le rôle collaborateur", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
+
+    expect(source).toContain('const canAccessAgencyModules = Boolean(user) && !isCollaborator;');
+    expect(source).toContain('enabled: isAuthenticated && canAccessAgencyModules');
+    expect(source).toContain('const canViewRevenueDashboard = canAccessAgencyModules && preferencesQuery.data?.showRevenueDashboard !== false;');
+    expect(source).toContain("Les pointages sont verrouillés après création");
+  });
+});

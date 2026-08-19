@@ -363,3 +363,67 @@ describe("Chemins de succès admin et transitions métier", () => {
     expect(created).toMatchObject({ id: 55, managementTemplate: "studio_creatif", defaultCurrency: "EUR", jurisdiction: "mg", activatedForCreator: true });
   });
 });
+
+
+describe("RBAC configurable et workflow RH collaborateur", () => {
+  const adminContext: TrpcContext = {
+    user: { id: 1, openId: "rbac-admin", email: "rbac-admin@agency.com", name: "Admin RBAC", loginMethod: "manus", role: "admin", activeProjectId: 42, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    req: { protocol: "https", headers: {} } as any,
+    res: { clearCookie: () => {} } as any,
+  };
+
+  it("permet à l’admin de configurer une permission et refuse de désactiver les droits admin", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    await withFakeDb([[]], async (database) => {
+      await expect(caller.admin.updateRolePermission({ role: "collaborateur", permissionKey: "hr.request.create", enabled: true })).resolves.toMatchObject({ success: true, enabled: true });
+      expect(database.insert).toHaveBeenCalledTimes(1);
+    });
+    await expect(withFakeDb([[]], async () => caller.admin.updateRolePermission({ role: "admin", permissionKey: "hr.request.create", enabled: false }))).rejects.toThrow("toujours disponibles");
+  });
+
+  it("permet à l’admin de masquer le CA d’un projet existant", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    await withFakeDb([[{ id: 42 }]], async (database) => {
+      await expect(caller.admin.updateRevenueVisibility({ projectId: 42, showRevenueDashboard: false })).resolves.toMatchObject({ success: true, showRevenueDashboard: false });
+      expect(database.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("refuse la modification et la suppression d’un pointage au collaborateur", async () => {
+    const collaboratorContext: TrpcContext = { ...adminContext, user: { ...adminContext.user!, id: 2, role: "collaborateur", openId: "rbac-collaborateur", email: "collab@agency.com" } };
+    const caller = appRouter.createCaller(collaboratorContext);
+    await expect(withFakeDb([[]], async () => caller.hr.updateTimeEntry({ id: 10, date: "2026-08-19", hoursWorked: "8", status: "présent", notes: "" }))).rejects.toThrow("hr.timeEntry.edit");
+    await expect(withFakeDb([[]], async () => caller.hr.deleteTimeEntry({ id: 10 }))).rejects.toThrow("hr.timeEntry.delete");
+  });
+
+  it("crée un ticket RH automatiquement avec la demande de congé", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    await withFakeDb([[{ id: 4, name: "Agent RH" }]], async (database) => {
+      const result = await caller.hr.createLeave({ agentId: 4, leaveType: "Annuel", startDate: "2026-08-20", endDate: "2026-08-21", daysCount: 2, reason: "Congé familial" });
+      expect(result).toMatchObject({ success: true });
+      expect(database.insert).toHaveBeenCalledTimes(2);
+      expect(database.insert.mock.calls[1][0]).toBeDefined();
+    });
+  });
+});
+
+
+describe("Synchronisation des tickets RH", () => {
+  const adminContext: TrpcContext = {
+    user: { id: 1, openId: "ticket-admin", email: "ticket-admin@agency.com", name: "Admin Tickets", loginMethod: "manus", role: "admin", activeProjectId: 42, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    req: { protocol: "https", headers: {} } as any,
+    res: { clearCookie: () => {} } as any,
+  };
+
+  it("propage le statut d’un ticket congé ou avance vers la gestion RH", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    await withFakeDb([[{ id: 21, agentId: 4, requestType: "conge", requestId: 7 }]], async (database) => {
+      await expect(caller.hr.updateTicketStatus({ id: 21, status: "résolu" })).resolves.toMatchObject({ success: true });
+      expect(database.update).toHaveBeenCalledTimes(2);
+    });
+    await withFakeDb([[{ id: 22, agentId: 4, requestType: "avance", requestId: 8 }]], async (database) => {
+      await expect(caller.hr.updateTicketStatus({ id: 22, status: "fermé" })).resolves.toMatchObject({ success: true });
+      expect(database.update).toHaveBeenCalledTimes(2);
+    });
+  });
+});

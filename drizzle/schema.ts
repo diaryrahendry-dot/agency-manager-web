@@ -1,4 +1,4 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date, uniqueIndex } from "drizzle-orm/mysql-core";
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -30,6 +30,7 @@ export const agencyProjects = mysqlTable("agency_projects", {
   managementTemplate: mysqlEnum("managementTemplate", ["agence_complete", "studio_creatif", "prestations_rh"]).default("agence_complete").notNull(),
   defaultCurrency: mysqlEnum("defaultCurrency", ["EUR", "MGA"]).default("MGA").notNull(),
   jurisdiction: mysqlEnum("jurisdiction", ["fr", "mg"]).default("fr").notNull(),
+  showRevenueDashboard: boolean("showRevenueDashboard").default(true).notNull(),
   status: mysqlEnum("status", ["actif", "archive"]).default("actif").notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -46,6 +47,27 @@ export const projectMembers = mysqlTable("project_members", {
 
 export type AgencyProject = typeof agencyProjects.$inferSelect;
 export type ProjectMember = typeof projectMembers.$inferSelect;
+
+export const rolePermissions = mysqlTable("role_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  role: mysqlEnum("role", ["collaborateur", "superviseur", "admin"]).notNull(),
+  permissionKey: varchar("permissionKey", { length: 80 }).notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  updatedBy: int("updatedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ rolePermissionUnique: uniqueIndex("role_permission_unique").on(table.role, table.permissionKey) }));
+
+export const supervisorTeams = mysqlTable("supervisor_teams", {
+  id: int("id").autoincrement().primaryKey(),
+  supervisorUserId: int("supervisorUserId").notNull(),
+  projectId: int("projectId"),
+  department: varchar("department", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ supervisorTeamUnique: uniqueIndex("supervisor_team_unique").on(table.supervisorUserId, table.projectId, table.department) }));
+
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type SupervisorTeam = typeof supervisorTeams.$inferSelect;
 
 // 1. Module RH
 export const agents = mysqlTable("agents", {
@@ -118,6 +140,9 @@ export const tickets = mysqlTable("tickets", {
   description: text("description").notNull(),
   agentId: int("agentId"), // Assigné à l'agent
   clientId: int("clientId"), // Lié au client optionnel
+  requesterUserId: int("requesterUserId"),
+  requestType: varchar("requestType", { length: 50 }),
+  requestId: int("requestId"),
   priority: mysqlEnum("priority", ["basse", "normale", "haute", "urgente"]).default("normale").notNull(),
   status: mysqlEnum("status", ["ouvert", "en_cours", "résolu", "fermé"]).default("ouvert").notNull(),
   category: varchar("category", { length: 100 }).default("Technique").notNull(),

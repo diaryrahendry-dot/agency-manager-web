@@ -8,12 +8,14 @@ import * as db from "./db";
 import { 
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers 
+  quotes, invoices, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers,
+  rolePermissions, supervisorTeams
 } from "../drizzle/schema";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
 import { PROJECT_TEMPLATE_KEYS } from "../shared/projectTemplates";
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_KEYS, type PermissionKey, type RoleKey } from "../shared/permissions";
 
 function dateKey(value: string | Date | null | undefined) {
   if (!value) return "";
@@ -26,6 +28,47 @@ function amountOf(value: unknown) {
 }
 function projectScope(column: any, projectId?: number | null) {
   return projectId ? or(eq(column, projectId), isNull(column)) : isNull(column);
+}
+
+async function hasPermission(database: any, role: RoleKey, permissionKey: PermissionKey) {
+  if (role === "admin") return true;
+  const override = await database.select({ enabled: rolePermissions.enabled }).from(rolePermissions).where(and(eq(rolePermissions.role, role), eq(rolePermissions.permissionKey, permissionKey))).limit(1);
+  return override[0] ? Boolean(override[0].enabled) : DEFAULT_ROLE_PERMISSIONS[role].includes(permissionKey);
+}
+
+async function requirePermission(database: any, ctx: any, permissionKey: PermissionKey) {
+  if (!(await hasPermission(database, ctx.user.role as RoleKey, permissionKey))) {
+    throw new Error(`Permission insuffisante: ${permissionKey}`);
+  }
+}
+
+async function getAccessibleAgentIds(database: any, ctx: any): Promise<number[] | null> {
+  if (ctx.user.role === "admin") return null;
+  const agentRows = await database.select({ id: agents.id, email: agents.email, department: agents.department }).from(agents).where(projectScope(agents.projectId, ctx.user.activeProjectId));
+  const own = agentRows.filter((agent: any) => Boolean(ctx.user.email) && agent.email.toLowerCase() === String(ctx.user.email).toLowerCase());
+  if (ctx.user.role === "collaborateur") return own.map((agent: any) => agent.id);
+  if (!(await hasPermission(database, ctx.user.role as RoleKey, "hr.team.view"))) return own.map((agent: any) => agent.id);
+  const assignedRows = await database.select({ department: supervisorTeams.department }).from(supervisorTeams).where(and(eq(supervisorTeams.supervisorUserId, ctx.user.id), projectScope(supervisorTeams.projectId, ctx.user.activeProjectId)));
+  const assignedDepartments = new Set(assignedRows.map((row: any) => row.department));
+  return agentRows.filter((agent: any) => own.some((item: any) => item.id === agent.id) || assignedDepartments.has(agent.department)).map((agent: any) => agent.id);
+}
+
+async function requireAgentAccess(database: any, ctx: any, agentId: number) {
+  const accessible = await getAccessibleAgentIds(database, ctx);
+  if (accessible !== null && !accessible.includes(agentId)) throw new Error("Cet agent n’est pas dans votre périmètre");
+}
+
+async function requireDepartmentAccess(database: any, ctx: any, department: string) {
+  if (ctx.user.role === "admin") return;
+  if (ctx.user.role !== "superviseur") throw new Error("Les collaborateurs ne peuvent pas gérer les fiches d’équipe");
+  const assigned = await database.select({ id: supervisorTeams.id }).from(supervisorTeams).where(and(eq(supervisorTeams.supervisorUserId, ctx.user.id), eq(supervisorTeams.department, department), projectScope(supervisorTeams.projectId, ctx.user.activeProjectId))).limit(1);
+  if (!assigned[0]) throw new Error("Ce département n’est pas attribué à votre équipe");
+}
+
+async function getRevenueVisibility(database: any, ctx: any) {
+  if (!ctx.user.activeProjectId) return true;
+  const rows = await database.select({ showRevenueDashboard: agencyProjects.showRevenueDashboard }).from(agencyProjects).where(eq(agencyProjects.id, ctx.user.activeProjectId)).limit(1);
+  return rows[0]?.showRevenueDashboard !== false;
 }
 
 function invoiceServiceNames(itemsJson: string) {
@@ -121,7 +164,12 @@ export const appRouter = router({
   // Module RH
   hr: router({
     listAgents: protectedProcedure.query(async ({ ctx }) => {
-      return await db.getAgents(ctx.user.activeProjectId);
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "dashboard.view");
+      const rows = await db.getAgents(ctx.user.activeProjectId);
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      return accessible === null ? rows : rows.filter(agent => accessible.includes(agent.id));
     }),
     createAgent: supervisorProcedure.input(z.object({
       name: z.string().trim().min(1, "Le nom est obligatoire"),
@@ -138,6 +186,8 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      await requirePermission(database, ctx, "hr.manage");
+      await requireDepartmentAccess(database, ctx, input.department);
       try {
         await database.insert(agents).values({
           projectId: ctx.user.activeProjectId,
@@ -175,8 +225,11 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      await requirePermission(database, ctx, "hr.manage");
+      const existing = await database.select({ id: agents.id, department: agents.department }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Agent introuvable");
+      await requireDepartmentAccess(database, ctx, existing[0].department);
+      await requireDepartmentAccess(database, ctx, input.department);
       await database.update(agents).set({
         name: input.name,
         email: input.email,
@@ -195,14 +248,22 @@ export const appRouter = router({
     deleteAgent: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      await requirePermission(database, ctx, "hr.manage");
+      const existing = await database.select({ id: agents.id, department: agents.department }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Agent introuvable");
+      await requireDepartmentAccess(database, ctx, existing[0].department);
       await database.delete(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
 
-    listTimeEntries: protectedProcedure.input(z.object({ agentId: z.number().optional() }).optional()).query(async ({ input }) => {
-      return await db.getTimeEntries(input?.agentId);
+    listTimeEntries: protectedProcedure.input(z.object({ agentId: z.number().optional() }).optional()).query(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "hr.self.view");
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      if (accessible !== null && input?.agentId && !accessible.includes(input.agentId)) throw new Error("Ce pointage n’est pas dans votre périmètre");
+      if (accessible !== null) return accessible.length ? db.getTimeEntries(input?.agentId ?? accessible[0]) : [];
+      return db.getTimeEntries(input?.agentId);
     }),
     createTimeEntry: protectedProcedure.input(z.object({
       agentId: z.number().int().positive(),
@@ -213,6 +274,8 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      await requirePermission(database, ctx, "hr.timeEntry.create");
+      await requireAgentAccess(database, ctx, input.agentId);
       const agent = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.agentId), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (agent.length === 0) throw new Error("Agent introuvable");
       await database.insert(timeEntries).values({
@@ -233,22 +296,31 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      await requirePermission(database, ctx, "hr.timeEntry.edit");
+      const existing = await database.select({ id: timeEntries.id, agentId: timeEntries.agentId }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Pointage introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.update(timeEntries).set({ date: input.date, hoursWorked: input.hoursWorked, status: input.status, notes: input.notes || null } as any).where(eq(timeEntries.id, input.id));
       return { success: true };
     }),
     deleteTimeEntry: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      await requirePermission(database, ctx, "hr.timeEntry.delete");
+      const existing = await database.select({ id: timeEntries.id, agentId: timeEntries.agentId }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Pointage introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.delete(timeEntries).where(eq(timeEntries.id, input.id));
       return { success: true };
     }),
 
-    listLeaves: protectedProcedure.query(async () => {
-      return await db.getLeaves();
+    listLeaves: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "hr.self.view");
+      const rows = await db.getLeaves();
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      return accessible === null ? rows : rows.filter(row => accessible.includes(row.agentId));
     }),
     createLeave: protectedProcedure.input(z.object({
       agentId: z.number(),
@@ -257,54 +329,68 @@ export const appRouter = router({
       endDate: z.string(),
       daysCount: z.number(),
       reason: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.insert(leaves).values({
-        agentId: input.agentId,
-        leaveType: input.leaveType,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        daysCount: input.daysCount,
-        reason: input.reason || null,
-      } as any);
-      return { success: true };
+      await requirePermission(database, ctx, "hr.request.create");
+      await requireAgentAccess(database, ctx, input.agentId);
+      const agent = await database.select({ id: agents.id, name: agents.name }).from(agents).where(and(eq(agents.id, input.agentId), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!agent[0]) throw new Error("Agent introuvable");
+      const inserted: any = await database.insert(leaves).values({ agentId: input.agentId, leaveType: input.leaveType, startDate: input.startDate, endDate: input.endDate, daysCount: input.daysCount, reason: input.reason || null } as any);
+      const requestId = Number(inserted?.[0]?.insertId ?? inserted?.insertId ?? 0) || null;
+      await database.insert(tickets).values({ title: `Demande de congé — ${agent[0].name}`, description: input.reason || `Demande de congé du ${input.startDate} au ${input.endDate} (${input.daysCount} jour(s)).`, agentId: input.agentId, requesterUserId: ctx.user.id, requestType: "conge", requestId, priority: "normale", category: "RH - Congé" } as any);
+      return { success: true, requestId };
     }),
     updateLeaveStatus: supervisorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["en_attente", "approuvé", "refusé"]),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      await requirePermission(database, ctx, "hr.request.manage");
+      const existing = await database.select({ id: leaves.id, agentId: leaves.agentId }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.update(leaves).set({ status: input.status }).where(eq(leaves.id, input.id));
+      await database.update(tickets).set({ status: input.status === "en_attente" ? "en_cours" : input.status === "approuvé" ? "résolu" : "fermé" } as any).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id)));
       return { success: true };
     }),
-    updateLeave: protectedProcedure.input(z.object({
+    updateLeave: supervisorProcedure.input(z.object({
       id: z.number().int().positive(),
       leaveType: z.string().trim().min(1),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date de début est invalide"),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date de fin est invalide"),
       daysCount: z.number().int().positive(),
       reason: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: leaves.id }).from(leaves).where(eq(leaves.id, input.id)).limit(1);
-      if (existing.length === 0) throw new Error("Demande de congé introuvable");
+      await requirePermission(database, ctx, "hr.request.manage");
+      const existing = await database.select({ id: leaves.id, agentId: leaves.agentId }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.update(leaves).set({ leaveType: input.leaveType, startDate: input.startDate, endDate: input.endDate, daysCount: input.daysCount, reason: input.reason || null } as any).where(eq(leaves.id, input.id));
       return { success: true };
     }),
-    deleteLeave: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    deleteLeave: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: leaves.id }).from(leaves).where(eq(leaves.id, input.id)).limit(1);
-      if (existing.length === 0) throw new Error("Demande de congé introuvable");
+      await requirePermission(database, ctx, "hr.request.manage");
+      const existing = await database.select({ id: leaves.id, agentId: leaves.agentId }).from(leaves).innerJoin(agents, eq(leaves.agentId, agents.id)).where(and(eq(leaves.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Demande de congé introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.delete(leaves).where(eq(leaves.id, input.id));
+      await database.delete(tickets).where(and(eq(tickets.requestType, "conge"), eq(tickets.requestId, input.id)));
       return { success: true };
     }),
 
-    listSalaryAdvances: protectedProcedure.query(async () => {
-      return await db.getSalaryAdvances();
+    listSalaryAdvances: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "hr.self.view");
+      const rows = await db.getSalaryAdvances();
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      return accessible === null ? rows : rows.filter(row => accessible.includes(row.agentId));
     }),
     createSalaryAdvance: protectedProcedure.input(z.object({
       agentId: z.number(),
@@ -312,30 +398,40 @@ export const appRouter = router({
       requestedDate: z.string(),
       deductionMonth: z.string(),
       notes: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.insert(salaryAdvances).values({
-        agentId: input.agentId,
-        amount: input.amount,
-        requestedDate: input.requestedDate,
-        deductionMonth: input.deductionMonth,
-        notes: input.notes || null,
-      } as any);
-      return { success: true };
+      await requirePermission(database, ctx, "hr.request.create");
+      await requireAgentAccess(database, ctx, input.agentId);
+      const agent = await database.select({ id: agents.id, name: agents.name }).from(agents).where(and(eq(agents.id, input.agentId), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!agent[0]) throw new Error("Agent introuvable");
+      const inserted: any = await database.insert(salaryAdvances).values({ agentId: input.agentId, amount: input.amount, requestedDate: input.requestedDate, deductionMonth: input.deductionMonth, notes: input.notes || null } as any);
+      const requestId = Number(inserted?.[0]?.insertId ?? inserted?.insertId ?? 0) || null;
+      await database.insert(tickets).values({ title: `Demande d’avance — ${agent[0].name}`, description: input.notes || `Demande d’avance de ${input.amount} à déduire sur ${input.deductionMonth}.`, agentId: input.agentId, requesterUserId: ctx.user.id, requestType: "avance", requestId, priority: "haute", category: "RH - Avance salaire" } as any);
+      return { success: true, requestId };
     }),
     updateSalaryAdvanceStatus: supervisorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["demandé", "accordé", "déduit", "refusé"]),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      await requirePermission(database, ctx, "hr.request.manage");
+      const existing = await database.select({ id: salaryAdvances.id, agentId: salaryAdvances.agentId }).from(salaryAdvances).innerJoin(agents, eq(salaryAdvances.agentId, agents.id)).where(and(eq(salaryAdvances.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Demande d’avance introuvable");
+      await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.update(salaryAdvances).set({ status: input.status }).where(eq(salaryAdvances.id, input.id));
+      await database.update(tickets).set({ status: input.status === "demandé" ? "en_cours" : input.status === "refusé" ? "fermé" : "résolu" } as any).where(and(eq(tickets.requestType, "avance"), eq(tickets.requestId, input.id)));
       return { success: true };
     }),
 
-    listContracts: protectedProcedure.query(async () => {
-      return await db.getContracts();
+    listContracts: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "hr.self.view");
+      const rows = await db.getContracts();
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      return accessible === null ? rows : rows.filter(row => accessible.includes(row.agentId));
     }),
     createContract: supervisorProcedure.input(z.object({
       agentId: z.number(),
@@ -345,23 +441,22 @@ export const appRouter = router({
       endDate: z.string().optional(),
       documentUrl: z.string().optional(),
       documentKey: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.insert(contracts).values({
-        agentId: input.agentId,
-        title: input.title,
-        contractType: input.contractType,
-        startDate: input.startDate,
-        endDate: input.endDate || null,
-        documentUrl: input.documentUrl || null,
-        documentKey: input.documentKey || null,
-      } as any);
+      await requirePermission(database, ctx, "hr.manage");
+      await requireAgentAccess(database, ctx, input.agentId);
+      await database.insert(contracts).values({ agentId: input.agentId, title: input.title, contractType: input.contractType, startDate: input.startDate, endDate: input.endDate || null, documentUrl: input.documentUrl || null, documentKey: input.documentKey || null } as any);
       return { success: true };
     }),
 
-    listTickets: protectedProcedure.query(async () => {
-      return await db.getTickets();
+    listTickets: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      await requirePermission(database, ctx, "hr.self.view");
+      const rows = await db.getTickets();
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      return accessible === null ? rows : rows.filter(row => (row.agentId !== null && accessible.includes(row.agentId)) || (row as any).requesterUserId === ctx.user.id);
     }),
     createTicket: protectedProcedure.input(z.object({
       title: z.string(),
@@ -370,26 +465,37 @@ export const appRouter = router({
       clientId: z.number().optional(),
       priority: z.enum(["basse", "normale", "haute", "urgente"]),
       category: z.string(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.insert(tickets).values({
-        title: input.title,
-        description: input.description,
-        agentId: input.agentId || null,
-        clientId: input.clientId || null,
-        priority: input.priority,
-        category: input.category,
-      } as any);
+      await requirePermission(database, ctx, "hr.request.create");
+      const accessible = await getAccessibleAgentIds(database, ctx);
+      const targetAgentId = input.agentId ?? (accessible && accessible.length === 1 ? accessible[0] : null);
+      if (targetAgentId !== null) await requireAgentAccess(database, ctx, targetAgentId);
+      if (ctx.user.role === "collaborateur" && targetAgentId === null) throw new Error("Votre ticket doit être rattaché à votre fiche agent");
+      await database.insert(tickets).values({ title: input.title, description: input.description, agentId: targetAgentId, clientId: input.clientId || null, requesterUserId: ctx.user.id, priority: input.priority, category: input.category } as any);
       return { success: true };
     }),
     updateTicketStatus: protectedProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["ouvert", "en_cours", "résolu", "fermé"]),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      await requirePermission(database, ctx, "hr.request.manage");
+      const existing = await database.select({ id: tickets.id, agentId: tickets.agentId, requestType: tickets.requestType, requestId: tickets.requestId }).from(tickets).where(eq(tickets.id, input.id)).limit(1);
+      if (!existing[0]) throw new Error("Ticket introuvable");
+      if (existing[0].agentId !== null) await requireAgentAccess(database, ctx, existing[0].agentId);
       await database.update(tickets).set({ status: input.status }).where(eq(tickets.id, input.id));
+      const requestId = existing[0].requestId;
+      if (requestId && existing[0].requestType === "conge") {
+        const leaveStatus = input.status === "résolu" ? "approuvé" : input.status === "fermé" ? "refusé" : "en_attente";
+        await database.update(leaves).set({ status: leaveStatus } as any).where(eq(leaves.id, requestId));
+      }
+      if (requestId && existing[0].requestType === "avance") {
+        const advanceStatus = input.status === "résolu" ? "accordé" : input.status === "fermé" ? "refusé" : "demandé";
+        await database.update(salaryAdvances).set({ status: advanceStatus } as any).where(eq(salaryAdvances.id, requestId));
+      }
       return { success: true };
     }),
   }),
@@ -524,8 +630,12 @@ export const appRouter = router({
       } as any);
       return { success: true, invoiceNumber: invoice.invoiceNumber, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
-    summary: protectedProcedure.query(async () => {
-      const txs = await db.getCashTransactions();
+    summary: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return { totalEntrees: 0, totalSorties: 0, solde: 0, transactionsCount: 0, hidden: false };
+      await requirePermission(database, ctx, "accounting.view");
+      const visible = await getRevenueVisibility(database, ctx);
+      const txs = await db.getCashTransactions(ctx.user.activeProjectId);
       let totalEntrees = 0;
       let totalSorties = 0;
       for (const t of txs) {
@@ -533,18 +643,17 @@ export const appRouter = router({
         if (t.type === "entrée") totalEntrees += amt;
         else totalSorties += amt;
       }
-      return {
-        totalEntrees,
-        totalSorties,
-        solde: totalEntrees - totalSorties,
-        transactionsCount: txs.length,
-      };
+      return visible ? { totalEntrees, totalSorties, solde: totalEntrees - totalSorties, transactionsCount: txs.length, hidden: false } : { totalEntrees: 0, totalSorties: 0, solde: 0, transactionsCount: txs.length, hidden: true };
     }),
     revenueReport: protectedProcedure.input(z.object({
       year: z.number().int().min(2000).max(2100).optional(),
-    }).optional()).query(async ({ input }) => {
+    }).optional()).query(async ({ input, ctx }) => {
       const selectedYear = input?.year ?? new Date().getFullYear();
-      const [transactions, allInvoices] = await Promise.all([db.getCashTransactions(), db.getInvoices()]);
+      const database = await db.getDb();
+      if (database) await requirePermission(database, ctx, "dashboard.view");
+      const visible = database ? await getRevenueVisibility(database, ctx) : true;
+      if (!visible) return { year: selectedYear, months: [], annual: [], kpis: { revenue: 0, expenses: 0, invoiced: 0, paid: 0, overdueInvoices: 0 }, hidden: true, generatedAt: new Date().toISOString() };
+      const [transactions, allInvoices] = await Promise.all([db.getCashTransactions(ctx.user.activeProjectId), db.getInvoices(ctx.user.activeProjectId)]);
       const months = Array.from({ length: 12 }, (_, index) => ({
         month: index + 1,
         label: new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(new Date(selectedYear, index, 1)),
@@ -604,14 +713,19 @@ export const appRouter = router({
           paid: months.reduce((sum, item) => sum + item.paid, 0),
           overdueInvoices,
         },
+        hidden: false,
         generatedAt: new Date().toISOString(),
       };
     }),
-    automaticReport: protectedProcedure.query(async () => {
+    automaticReport: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (database) await requirePermission(database, ctx, "dashboard.view");
+      const visible = database ? await getRevenueVisibility(database, ctx) : true;
+      if (!visible) return { monthLabel: "CA masqué", collected: 0, expenses: 0, invoicesCount: 0, unpaidCount: 0, hidden: true, generatedAt: new Date().toISOString() };
       const year = new Date().getFullYear();
       const report = await (async () => {
-        const transactions = await db.getCashTransactions();
-        const invoices = await db.getInvoices();
+        const transactions = await db.getCashTransactions(ctx.user.activeProjectId);
+        const invoices = await db.getInvoices(ctx.user.activeProjectId);
         const currentMonth = new Date().getMonth() + 1;
         const currentMonthKey = `${year}-${String(currentMonth).padStart(2, "0")}`;
         const monthTransactions = transactions.filter((item) => dateKey(item.date).startsWith(currentMonthKey));
@@ -624,15 +738,26 @@ export const appRouter = router({
           unpaidCount: monthInvoices.filter((item) => item.status !== "payée" && item.status !== "annulée").length,
         };
       })();
-      return { ...report, generatedAt: new Date().toISOString() };
+      return { ...report, hidden: false, generatedAt: new Date().toISOString() };
     }),
-    monthlyReport: protectedProcedure.input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional() }).optional()).query(async ({ input }) => {
+    monthlyReport: protectedProcedure.input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional() }).optional()).query(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (database) await requirePermission(database, ctx, "dashboard.view");
+      const visibleRevenue = database ? await getRevenueVisibility(database, ctx) : true;
+      const accessible = database ? await getAccessibleAgentIds(database, ctx) : null;
       const now = new Date();
       const monthKey = input?.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const [agentsData, timeEntriesData, leavesData, advancesData, contractsData, ticketsData, transactionsData, leadsData, clientsData, interactionsData, documentsData, quotesData, invoicesData] = await Promise.all([
-        db.getAgents(), db.getTimeEntries(), db.getLeaves(), db.getSalaryAdvances(), db.getContracts(), db.getTickets(),
-        db.getCashTransactions(), db.getLeads(), db.getClients(), db.getClientInteractions(), db.getDocuments(), db.getQuotes(), db.getInvoices(),
+      const [agentsDataRaw, timeEntriesDataRaw, leavesDataRaw, advancesDataRaw, contractsDataRaw, ticketsDataRaw, transactionsData, leadsData, clientsData, interactionsData, documentsData, quotesData, invoicesData] = await Promise.all([
+        db.getAgents(ctx.user.activeProjectId), db.getTimeEntries(), db.getLeaves(), db.getSalaryAdvances(), db.getContracts(), db.getTickets(),
+        db.getCashTransactions(ctx.user.activeProjectId), db.getLeads(ctx.user.activeProjectId), db.getClients(ctx.user.activeProjectId), db.getClientInteractions(), db.getDocuments(), db.getQuotes(ctx.user.activeProjectId), db.getInvoices(ctx.user.activeProjectId),
       ]);
+      const inScope = (agentId: number | null | undefined) => accessible === null || (agentId !== null && agentId !== undefined && accessible.includes(agentId));
+      const agentsData = accessible === null ? agentsDataRaw : agentsDataRaw.filter(item => accessible.includes(item.id));
+      const timeEntriesData = timeEntriesDataRaw.filter(item => inScope(item.agentId));
+      const leavesData = leavesDataRaw.filter(item => inScope(item.agentId));
+      const advancesData = advancesDataRaw.filter(item => inScope(item.agentId));
+      const contractsData = contractsDataRaw.filter(item => inScope(item.agentId));
+      const ticketsData = accessible === null ? ticketsDataRaw : ticketsDataRaw.filter(item => inScope(item.agentId) || (item as any).requesterUserId === ctx.user.id);
       const inMonth = (value: string | Date | null | undefined) => dateKey(value).startsWith(monthKey);
       const monthTransactions = transactionsData.filter(item => inMonth(item.date));
       const monthLeads = leadsData.filter(item => inMonth(item.createdAt));
@@ -647,16 +772,16 @@ export const appRouter = router({
       const monthAdvances = advancesData.filter(item => inMonth(item.requestedDate));
       const monthContracts = contractsData.filter(item => inMonth(item.startDate));
       const monthTickets = ticketsData.filter(item => inMonth(item.createdAt));
-      const collected = monthTransactions.filter(item => item.type === "entrée").reduce((sum, item) => sum + amountOf(item.amount), 0);
-      const expenses = monthTransactions.filter(item => item.type === "sortie").reduce((sum, item) => sum + amountOf(item.amount), 0);
-      const invoiced = monthInvoices.filter(item => item.status !== "annulée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0);
-      const paid = monthInvoices.filter(item => item.status === "payée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0);
+      const collected = visibleRevenue ? monthTransactions.filter(item => item.type === "entrée").reduce((sum, item) => sum + amountOf(item.amount), 0) : 0;
+      const expenses = visibleRevenue ? monthTransactions.filter(item => item.type === "sortie").reduce((sum, item) => sum + amountOf(item.amount), 0) : 0;
+      const invoiced = visibleRevenue ? monthInvoices.filter(item => item.status !== "annulée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0) : 0;
+      const paid = visibleRevenue ? monthInvoices.filter(item => item.status === "payée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0) : 0;
       const pipeline = monthLeads.filter(item => !["gagne", "perdu"].includes(item.status)).reduce((sum, item) => sum + amountOf(item.expectedAmount), 0);
       const openTickets = ticketsData.filter(item => ["ouvert", "en_cours"].includes(item.status)).length;
       const pendingAdvances = advancesData.filter(item => item.status === "demandé").length;
       const overdueInvoices = invoicesData.filter(item => item.status === "en_retard").length;
       const insights = [
-        collected > expenses ? "La trésorerie du mois est positive." : "Les dépenses dépassent les encaissements du mois : vérifiez les sorties importantes.",
+        visibleRevenue ? (collected > expenses ? "La trésorerie du mois est positive." : "Les dépenses dépassent les encaissements du mois : vérifiez les sorties importantes.") : "Les indicateurs financiers sont masqués par la configuration du projet.",
         pipeline > 0 ? `${monthLeads.length} lead(s) alimentent encore le pipeline pour ${pipeline.toLocaleString("fr-FR")} € potentiels.` : "Aucun montant actif n’est actuellement détecté dans le pipeline.",
         overdueInvoices > 0 ? `${overdueInvoices} facture(s) en retard nécessitent une relance.` : "Aucune facture en retard détectée.",
         pendingAdvances > 0 ? `${pendingAdvances} demande(s) d’avance sur salaire sont à traiter.` : "Aucune avance sur salaire en attente.",
@@ -664,6 +789,7 @@ export const appRouter = router({
       return {
         month: monthKey,
         monthLabel: new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)) - 1, 1)),
+        hiddenRevenue: !visibleRevenue,
         generatedAt: new Date().toISOString(),
         sections: {
           rh: { newAgents: monthAgents.length, timeEntries: monthTimeEntries.length, leaveRequests: monthLeaves.length, advances: monthAdvances.length, contracts: monthContracts.length, openTickets },
@@ -1559,6 +1685,67 @@ export const appRouter = router({
       await database.update(users).set({ role: input.role } as any).where(eq(users.id, input.userId));
       return { success: true, changedBy: ctx.user.id };
     }),
+    getRolePermissions: adminProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const overrides = await database.select().from(rolePermissions);
+      const roles = ["collaborateur", "superviseur", "admin"] as const;
+      return roles.flatMap(role => PERMISSION_KEYS.map(permissionKey => {
+        const override = overrides.find(row => row.role === role && row.permissionKey === permissionKey);
+        return { role, permissionKey, enabled: override ? Boolean(override.enabled) : DEFAULT_ROLE_PERMISSIONS[role].includes(permissionKey), configured: Boolean(override) };
+      }));
+    }),
+    updateRolePermission: adminProcedure.input(z.object({
+      role: z.enum(["collaborateur", "superviseur", "admin"]),
+      permissionKey: z.enum(PERMISSION_KEYS),
+      enabled: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      if (input.role === "admin" && !input.enabled) throw new Error("Les permissions administrateur restent toujours disponibles");
+      const existing = await database.select({ id: rolePermissions.id }).from(rolePermissions).where(and(eq(rolePermissions.role, input.role), eq(rolePermissions.permissionKey, input.permissionKey))).limit(1);
+      if (existing[0]) {
+        await database.update(rolePermissions).set({ enabled: input.enabled, updatedBy: ctx.user.id } as any).where(eq(rolePermissions.id, existing[0].id));
+      } else {
+        await database.insert(rolePermissions).values({ role: input.role, permissionKey: input.permissionKey, enabled: input.enabled, updatedBy: ctx.user.id } as any);
+      }
+      return { success: true, role: input.role, permissionKey: input.permissionKey, enabled: input.enabled };
+    }),
+    listSupervisorTeams: adminProcedure.input(z.object({ supervisorUserId: z.number().int().positive().optional(), projectId: z.number().int().positive().nullable().optional() }).optional()).query(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const filters = [] as any[];
+      if (input?.supervisorUserId) filters.push(eq(supervisorTeams.supervisorUserId, input.supervisorUserId));
+      if (input?.projectId !== undefined) filters.push(input.projectId === null ? isNull(supervisorTeams.projectId) : eq(supervisorTeams.projectId, input.projectId));
+      return database.select({ id: supervisorTeams.id, supervisorUserId: supervisorTeams.supervisorUserId, projectId: supervisorTeams.projectId, department: supervisorTeams.department, supervisorName: users.name, supervisorEmail: users.email }).from(supervisorTeams).leftJoin(users, eq(supervisorTeams.supervisorUserId, users.id)).where(filters.length ? and(...filters) : undefined);
+    }),
+    assignSupervisorTeam: adminProcedure.input(z.object({ supervisorUserId: z.number().int().positive(), projectId: z.number().int().positive().nullable().optional(), department: z.string().trim().min(1, "L’équipe est obligatoire") })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const [supervisor] = await database.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, input.supervisorUserId)).limit(1);
+      if (!supervisor || supervisor.role !== "superviseur") throw new Error("Le compte doit avoir le rôle superviseur");
+      if (input.projectId) {
+        const project = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.id, input.projectId)).limit(1);
+        if (!project[0]) throw new Error("Projet introuvable");
+      }
+      const existing = await database.select({ id: supervisorTeams.id }).from(supervisorTeams).where(and(eq(supervisorTeams.supervisorUserId, input.supervisorUserId), input.projectId === null || input.projectId === undefined ? isNull(supervisorTeams.projectId) : eq(supervisorTeams.projectId, input.projectId), eq(supervisorTeams.department, input.department))).limit(1);
+      if (!existing[0]) await database.insert(supervisorTeams).values({ supervisorUserId: input.supervisorUserId, projectId: input.projectId ?? null, department: input.department } as any);
+      return { success: true };
+    }),
+    removeSupervisorTeam: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.delete(supervisorTeams).where(eq(supervisorTeams.id, input.id));
+      return { success: true };
+    }),
+    updateRevenueVisibility: adminProcedure.input(z.object({ projectId: z.number().int().positive(), showRevenueDashboard: z.boolean() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const project = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.id, input.projectId)).limit(1);
+      if (!project[0]) throw new Error("Projet introuvable");
+      await database.update(agencyProjects).set({ showRevenueDashboard: input.showRevenueDashboard } as any).where(eq(agencyProjects.id, input.projectId));
+      return { success: true, showRevenueDashboard: input.showRevenueDashboard };
+    }),
     listProjects: adminProcedure.query(async () => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -1664,11 +1851,19 @@ export const appRouter = router({
   }),
 
   preferences: router({
-    get: protectedProcedure.query(({ ctx }) => ({
-      currency: ctx.user.preferredCurrency,
-      showMGAEquivalent: ctx.user.showMGAEquivalent,
-      activeProjectId: ctx.user.activeProjectId,
-    })),
+    get: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      let showRevenueDashboard = true;
+      if (database && ctx.user.activeProjectId) {
+        showRevenueDashboard = await getRevenueVisibility(database, ctx);
+      }
+      return {
+        currency: ctx.user.preferredCurrency,
+        showMGAEquivalent: ctx.user.showMGAEquivalent,
+        activeProjectId: ctx.user.activeProjectId,
+        showRevenueDashboard,
+      };
+    }),
     update: protectedProcedure.input(z.object({
       currency: z.enum(["EUR", "MGA"]).optional(),
       showMGAEquivalent: z.boolean().optional(),
