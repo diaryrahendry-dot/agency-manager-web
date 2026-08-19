@@ -12,6 +12,16 @@ import {
 import { eq } from "drizzle-orm";
 import { storagePut } from "./storage";
 
+function dateKey(value: string | Date | null | undefined) {
+  if (!value) return "";
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+}
+
+function amountOf(value: unknown) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -241,7 +251,7 @@ export const appRouter = router({
       let totalEntrees = 0;
       let totalSorties = 0;
       for (const t of txs) {
-        const amt = Number(t.amount);
+        const amt = amountOf(t.amount);
         if (t.type === "entrée") totalEntrees += amt;
         else totalSorties += amt;
       }
@@ -251,6 +261,92 @@ export const appRouter = router({
         solde: totalEntrees - totalSorties,
         transactionsCount: txs.length,
       };
+    }),
+    revenueReport: protectedProcedure.input(z.object({
+      year: z.number().int().min(2000).max(2100).optional(),
+    }).optional()).query(async ({ input }) => {
+      const selectedYear = input?.year ?? new Date().getFullYear();
+      const [transactions, allInvoices] = await Promise.all([db.getCashTransactions(), db.getInvoices()]);
+      const months = Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        label: new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(new Date(selectedYear, index, 1)),
+        revenue: 0,
+        expenses: 0,
+        invoiced: 0,
+        paid: 0,
+      }));
+      const annualMap = new Map<number, { year: number; revenue: number; expenses: number; invoiced: number; paid: number }>();
+      const ensureAnnual = (year: number) => {
+        if (!annualMap.has(year)) annualMap.set(year, { year, revenue: 0, expenses: 0, invoiced: 0, paid: 0 });
+        return annualMap.get(year)!;
+      };
+
+      for (const transaction of transactions) {
+        const key = dateKey(transaction.date);
+        const year = Number(key.slice(0, 4));
+        const month = Number(key.slice(5, 7));
+        if (!year) continue;
+        const annual = ensureAnnual(year);
+        const amount = amountOf(transaction.amount);
+        if (transaction.type === "entrée") annual.revenue += amount;
+        else annual.expenses += amount;
+        if (year === selectedYear && month >= 1 && month <= 12) {
+          const item = months[month - 1];
+          if (transaction.type === "entrée") item.revenue += amount;
+          else item.expenses += amount;
+        }
+      }
+
+      for (const invoice of allInvoices) {
+        const key = dateKey(invoice.issueDate);
+        const year = Number(key.slice(0, 4));
+        const month = Number(key.slice(5, 7));
+        if (!year) continue;
+        const annual = ensureAnnual(year);
+        const amount = amountOf(invoice.totalAmount);
+        if (invoice.status !== "annulée") annual.invoiced += amount;
+        if (invoice.status === "payée") annual.paid += amount;
+        if (year === selectedYear && month >= 1 && month <= 12) {
+          const item = months[month - 1];
+          if (invoice.status !== "annulée") item.invoiced += amount;
+          if (invoice.status === "payée") item.paid += amount;
+        }
+      }
+
+      const yearInvoices = allInvoices.filter((invoice) => Number(dateKey(invoice.issueDate).slice(0, 4)) === selectedYear);
+      const overdueInvoices = yearInvoices.filter((invoice) => invoice.status === "en_retard").length;
+      return {
+        year: selectedYear,
+        months,
+        annual: Array.from(annualMap.values()).sort((a, b) => a.year - b.year).slice(-6),
+        kpis: {
+          revenue: months.reduce((sum, item) => sum + item.revenue, 0),
+          expenses: months.reduce((sum, item) => sum + item.expenses, 0),
+          invoiced: months.reduce((sum, item) => sum + item.invoiced, 0),
+          paid: months.reduce((sum, item) => sum + item.paid, 0),
+          overdueInvoices,
+        },
+        generatedAt: new Date().toISOString(),
+      };
+    }),
+    automaticReport: protectedProcedure.query(async () => {
+      const year = new Date().getFullYear();
+      const report = await (async () => {
+        const transactions = await db.getCashTransactions();
+        const invoices = await db.getInvoices();
+        const currentMonth = new Date().getMonth() + 1;
+        const currentMonthKey = `${year}-${String(currentMonth).padStart(2, "0")}`;
+        const monthTransactions = transactions.filter((item) => dateKey(item.date).startsWith(currentMonthKey));
+        const monthInvoices = invoices.filter((item) => dateKey(item.issueDate).startsWith(currentMonthKey));
+        return {
+          monthLabel: new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, currentMonth - 1, 1)),
+          collected: monthTransactions.filter((item) => item.type === "entrée").reduce((sum, item) => sum + amountOf(item.amount), 0),
+          expenses: monthTransactions.filter((item) => item.type === "sortie").reduce((sum, item) => sum + amountOf(item.amount), 0),
+          invoicesCount: monthInvoices.length,
+          unpaidCount: monthInvoices.filter((item) => item.status !== "payée" && item.status !== "annulée").length,
+        };
+      })();
+      return { ...report, generatedAt: new Date().toISOString() };
     }),
   }),
 
@@ -475,6 +571,41 @@ export const appRouter = router({
       if (!database) throw new Error("Database unavailable");
       await database.update(invoices).set({ status: input.status }).where(eq(invoices.id, input.id));
       return { success: true };
+    }),
+    updateInvoiceDraft: protectedProcedure.input(z.object({
+      id: z.number(),
+      clientId: z.number(),
+      quoteId: z.number().optional(),
+      issueDate: z.string(),
+      dueDate: z.string(),
+      totalAmount: z.string(),
+      itemsJson: z.string(),
+      notes: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select().from(invoices).where(eq(invoices.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Facture introuvable");
+      if (existing[0].status !== "brouillon") throw new Error("Seules les factures en brouillon peuvent être modifiées");
+      await database.update(invoices).set({
+        clientId: input.clientId,
+        quoteId: input.quoteId || null,
+        issueDate: input.issueDate,
+        dueDate: input.dueDate,
+        totalAmount: input.totalAmount,
+        itemsJson: input.itemsJson,
+        notes: input.notes || null,
+      } as any).where(eq(invoices.id, input.id));
+      return { success: true };
+    }),
+    nextInvoiceNumber: protectedProcedure.query(async () => {
+      const invoiceList = await db.getInvoices();
+      const currentYear = new Date().getFullYear();
+      const maxSequence = invoiceList.reduce((max, invoice) => {
+        const match = String(invoice.invoiceNumber).match(new RegExp(`FAC-${currentYear}-(\\d+)`));
+        return Math.max(max, match ? Number(match[1]) : 0);
+      }, 0);
+      return `FAC-${currentYear}-${String(maxSequence + 1).padStart(3, "0")}`;
     }),
   }),
 });

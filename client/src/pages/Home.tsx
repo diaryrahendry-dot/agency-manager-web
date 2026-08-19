@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { 
@@ -34,6 +35,8 @@ export default function Home() {
   
   const transactionsQuery = trpc.accounting.listTransactions.useQuery(undefined, { enabled: isAuthenticated });
   const accountingSummary = trpc.accounting.summary.useQuery(undefined, { enabled: isAuthenticated });
+  const revenueReportQuery = trpc.accounting.revenueReport.useQuery(undefined, { enabled: isAuthenticated });
+  const automaticReportQuery = trpc.accounting.automaticReport.useQuery(undefined, { enabled: isAuthenticated });
   
   const leadsQuery = trpc.crm.listLeads.useQuery(undefined, { enabled: isAuthenticated });
   
@@ -43,6 +46,7 @@ export default function Home() {
   
   const quotesQuery = trpc.billing.listQuotes.useQuery(undefined, { enabled: isAuthenticated });
   const invoicesQuery = trpc.billing.listInvoices.useQuery(undefined, { enabled: isAuthenticated });
+  const nextInvoiceNumberQuery = trpc.billing.nextInvoiceNumber.useQuery(undefined, { enabled: isAuthenticated });
 
   // États pour les modals de création
   const [isAgentOpen, setIsAgentOpen] = useState(false);
@@ -58,7 +62,8 @@ export default function Home() {
   const [clientForm, setClientForm] = useState({ companyName: "", contactName: "", email: "", phone: "", address: "", industry: "Conseil", category: "Standard", notes: "" });
 
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
-  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance" });
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance" });
 
   const utils = trpc.useUtils();
 
@@ -112,6 +117,16 @@ export default function Home() {
     onSuccess: () => {
       toast.success("Facture générée avec style !");
       setIsInvoiceOpen(false);
+      utils.billing.listInvoices.invalidate();
+    },
+    onError: (err) => toast.error("Erreur : " + err.message)
+  });
+
+  const updateInvoiceDraftMutation = trpc.billing.updateInvoiceDraft.useMutation({
+    onSuccess: () => {
+      toast.success("Facture brouillon mise à jour !");
+      setIsInvoiceOpen(false);
+      setEditingInvoiceId(null);
       utils.billing.listInvoices.invalidate();
     },
     onError: (err) => toast.error("Erreur : " + err.message)
@@ -255,6 +270,73 @@ export default function Home() {
                     {leadsQuery.data?.length || 0} prospects
                   </div>
                   <p className="text-xs text-amber-600 mt-1 font-medium">Kanban dynamique</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="border-slate-200 shadow-sm bg-white">
+                <CardHeader>
+                  <CardTitle>Analyse du CA mensuel</CardTitle>
+                  <CardDescription>Encaissements, dépenses et facturation sur {revenueReportQuery.data?.year || new Date().getFullYear()}</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[300px]">
+                  {revenueReportQuery.isLoading ? (
+                    <div className="h-full flex items-center justify-center text-sm text-slate-500"><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Génération du graphique…</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={revenueReportQuery.data?.months || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.28}/><stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                        <ChartTooltip formatter={(value: number) => value.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} />
+                        <Area type="monotone" dataKey="revenue" name="CA encaissé" stroke="#4f46e5" fill="url(#revenueGradient)" strokeWidth={3} />
+                        <Area type="monotone" dataKey="invoiced" name="Facturé" stroke="#06b6d4" fill="transparent" strokeWidth={2} strokeDasharray="5 5" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="border-slate-200 shadow-sm bg-white">
+                <CardHeader>
+                  <CardTitle>CA annuel & reporting automatique</CardTitle>
+                  <CardDescription>Vue historique des performances financières de l’agence</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[300px]">
+                  {revenueReportQuery.isLoading ? (
+                    <div className="h-full flex items-center justify-center text-sm text-slate-500"><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Agrégation des données…</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={revenueReportQuery.data?.annual || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="year" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+                        <ChartTooltip formatter={(value: number) => value.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })} />
+                        <Bar dataKey="revenue" name="CA encaissé" fill="#10b981" radius={[5, 5, 0, 0]} />
+                        <Bar dataKey="expenses" name="Dépenses" fill="#f43f5e" radius={[5, 5, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="border-indigo-100 bg-indigo-50/60 shadow-sm lg:col-span-2">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-indigo-950">Reporting automatique — {automaticReportQuery.data?.monthLabel || "mois en cours"}</CardTitle>
+                      <CardDescription className="text-indigo-700/70">Synthèse actualisée à partir des mouvements de caisse et des factures</CardDescription>
+                    </div>
+                    <Badge className="bg-indigo-600 text-white"><RefreshCw className="w-3 h-3 mr-1" /> Automatique</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Encaissé</p><p className="text-xl font-bold text-emerald-600">{(automaticReportQuery.data?.collected || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p></div>
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Dépenses</p><p className="text-xl font-bold text-rose-600">{(automaticReportQuery.data?.expenses || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</p></div>
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">Factures du mois</p><p className="text-xl font-bold text-indigo-700">{automaticReportQuery.data?.invoicesCount || 0}</p></div>
+                  <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">À relancer</p><p className="text-xl font-bold text-amber-600">{automaticReportQuery.data?.unpaidCount || 0}</p></div>
                 </CardContent>
               </Card>
             </div>
@@ -807,40 +889,44 @@ export default function Home() {
           <TabsContent value="billing" className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight">Facturation & Devis (Style Facture.net)</h2>
-                <p className="text-sm text-slate-500">Génération de documents professionnels, numérotation automatique et statuts</p>
+                <h2 className="text-2xl font-bold tracking-tight">Facturation & Devis</h2>
+                <p className="text-sm text-slate-500">Documents professionnels avec libellés clairs, numérotation automatique et statuts contrôlés</p>
               </div>
               <Dialog open={isInvoiceOpen} onOpenChange={setIsInvoiceOpen}>
                 <DialogTrigger asChild>
-                  <Button className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
-                    <Plus className="w-4 h-4 mr-2" /> Nouvelle Facture
+                  <Button onClick={() => { setEditingInvoiceId(null); setInvoiceForm({ ...invoiceForm, invoiceNumber: nextInvoiceNumberQuery.data || invoiceForm.invoiceNumber }); }} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
+                    <Plus className="w-4 h-4 mr-2" /> Nouvelle facture
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="bg-white rounded-2xl">
+                <DialogContent className="max-w-xl bg-white rounded-2xl">
                   <DialogHeader>
-                    <DialogTitle>Générer une facture</DialogTitle>
+                    <DialogTitle>{editingInvoiceId ? "Modifier la facture brouillon" : "Créer une facture professionnelle"}</DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Numéro de facture</Label>
-                      <Input value={invoiceForm.invoiceNumber} onChange={e => setInvoiceForm({...invoiceForm, invoiceNumber: e.target.value})} />
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-slate-900">
+                    <div className="flex items-start justify-between border-b border-slate-200 pb-4">
+                      <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">AgencyManager Pro</p><p className="mt-1 text-xs text-slate-500">Gestion intégrée d’agence & ERP</p></div>
+                      <div className="text-right"><p className="text-2xl font-black tracking-tight">FACTURE</p><p className="text-sm font-semibold text-slate-600">N° {invoiceForm.invoiceNumber || "Nouveau document"}</p></div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Client ID (référence base clients)</Label>
-                      <Input type="number" value={invoiceForm.clientId} onChange={e => setInvoiceForm({...invoiceForm, clientId: Number(e.target.value)})} />
+                    <div className="grid grid-cols-2 gap-4 border-b border-slate-200 py-4 text-xs">
+                      <div><p className="font-bold uppercase tracking-wider text-slate-400">Facturé à</p><p className="mt-1 font-semibold">Client #{invoiceForm.clientId}</p><p className="text-slate-500">Fiche client associée</p></div>
+                      <div className="text-right"><p className="font-bold uppercase tracking-wider text-slate-400">Dates</p><p className="mt-1">Émission : <span className="font-semibold">{invoiceForm.issueDate}</span></p><p>Échéance : <span className="font-semibold">{invoiceForm.dueDate}</span></p></div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Montant Total (€)</Label>
-                      <Input value={invoiceForm.totalAmount} onChange={e => setInvoiceForm({...invoiceForm, totalAmount: e.target.value})} placeholder="2400.00" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Détail / Lignes de facture</Label>
-                      <Textarea value={invoiceForm.itemsJson} onChange={e => setInvoiceForm({...invoiceForm, itemsJson: e.target.value})} />
-                    </div>
+                    <div className="py-4"><div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><span>Désignation</span><span>Montant TTC</span></div><div className="flex items-start justify-between px-3 py-3 text-sm"><span className="max-w-[70%]">{invoiceForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="font-bold">{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div>
+                    <div className="flex justify-end border-t border-slate-200 pt-4"><div className="w-48 space-y-2 text-sm"><div className="flex justify-between text-slate-500"><span>Total TTC</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div><div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Net à payer</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div></div>
+                    <p className="mt-4 text-[11px] text-slate-400">Conditions de règlement : se référer aux notes et à la date d’échéance indiquées.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 py-4">
+                    <div className="space-y-2"><Label>Numéro de facture</Label><Input value={invoiceForm.invoiceNumber} disabled={Boolean(editingInvoiceId)} onChange={e => setInvoiceForm({...invoiceForm, invoiceNumber: e.target.value})} /></div>
+                    <div className="space-y-2"><Label>Référence client</Label><Input type="number" value={invoiceForm.clientId} onChange={e => setInvoiceForm({...invoiceForm, clientId: Number(e.target.value)})} /></div>
+                    <div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={invoiceForm.issueDate} onChange={e => setInvoiceForm({...invoiceForm, issueDate: e.target.value})} /></div>
+                    <div className="space-y-2"><Label>Date d’échéance</Label><Input type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm({...invoiceForm, dueDate: e.target.value})} /></div>
+                    <div className="space-y-2 col-span-2"><Label>Montant total TTC (€)</Label><Input value={invoiceForm.totalAmount} onChange={e => setInvoiceForm({...invoiceForm, totalAmount: e.target.value})} placeholder="2400.00" /></div>
+                    <div className="space-y-2 col-span-2"><Label>Libellé / lignes de prestation</Label><Textarea value={invoiceForm.itemsJson} onChange={e => setInvoiceForm({...invoiceForm, itemsJson: e.target.value})} placeholder="Conseil stratégique — 10 heures" /></div>
+                    <div className="space-y-2 col-span-2"><Label>Notes et conditions de règlement</Label><Textarea value={invoiceForm.notes} onChange={e => setInvoiceForm({...invoiceForm, notes: e.target.value})} placeholder="Paiement à 30 jours, merci pour votre confiance." /></div>
                   </div>
                   <DialogFooter>
-                    <Button onClick={() => createInvoiceMutation.mutate(invoiceForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
-                      Créer la facture
+                    <Button onClick={() => editingInvoiceId ? updateInvoiceDraftMutation.mutate({ id: editingInvoiceId, clientId: invoiceForm.clientId, quoteId: invoiceForm.quoteId, issueDate: invoiceForm.issueDate, dueDate: invoiceForm.dueDate, totalAmount: invoiceForm.totalAmount, itemsJson: invoiceForm.itemsJson, notes: invoiceForm.notes }) : createInvoiceMutation.mutate(invoiceForm)} disabled={createInvoiceMutation.isPending || updateInvoiceDraftMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
+                      {editingInvoiceId ? "Enregistrer le brouillon" : "Créer la facture"}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -849,35 +935,25 @@ export default function Home() {
 
             <Card className="border-slate-200 shadow-sm bg-white">
               <CardHeader>
-                <CardTitle>Liste des Factures</CardTitle>
-                <CardDescription>Suivi des règlements et statuts comptables</CardDescription>
+                <CardTitle>Factures & libellés commerciaux</CardTitle>
+                <CardDescription>Présentées dans un format clair, proche des usages de facture.net. Une facture en brouillon reste modifiable.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Numéro</TableHead>
-                      <TableHead>Client ID</TableHead>
-                      <TableHead>Date d'émission</TableHead>
-                      <TableHead>Échéance</TableHead>
-                      <TableHead>Montant</TableHead>
-                      <TableHead>Statut</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Échéance</TableHead><TableHead>Montant TTC</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {invoicesQuery.data?.map(inv => (
                       <TableRow key={inv.id}>
-                        <TableCell className="font-bold text-slate-900">{inv.invoiceNumber}</TableCell>
+                        <TableCell><div className="flex flex-col"><span className="font-bold text-slate-900">Facture · {inv.invoiceNumber}</span><span className="text-xs text-slate-500">Document commercial AgencyManager Pro</span></div></TableCell>
                         <TableCell>Client #{inv.clientId}</TableCell>
-                        <TableCell>{String(inv.issueDate)}</TableCell>
-                        <TableCell>{String(inv.dueDate)}</TableCell>
+                        <TableCell>{String(inv.issueDate).slice(0, 10)}</TableCell>
+                        <TableCell>{String(inv.dueDate).slice(0, 10)}</TableCell>
                         <TableCell className="font-semibold">{Number(inv.totalAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
-                        <TableCell><Badge variant="outline">{inv.status}</Badge></TableCell>
+                        <TableCell><Badge variant={inv.status === "brouillon" ? "secondary" : "outline"}>{inv.status}</Badge></TableCell>
+                        <TableCell className="text-right">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}</TableCell>
                       </TableRow>
                     ))}
-                    {(!invoicesQuery.data || invoicesQuery.data.length === 0) && (
-                      <TableRow><TableCell colSpan={6} className="text-center py-6 text-slate-500">Aucune facture émise.</TableCell></TableRow>
-                    )}
+                    {(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={7} className="text-center py-6 text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </CardContent>

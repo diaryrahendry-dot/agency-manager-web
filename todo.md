@@ -19,3 +19,10 @@
 - [x] Écrire et exécuter les tests Vitest des procédures principales
 - [x] Vérifier l’interface en responsive desktop/tablette/mobile et corriger les défauts visuels
 - [x] Créer le checkpoint final après validation
+- [x] Ajouter les procédures tRPC pour mettre à jour une facture en brouillon et calculer le CA mensuel/annuel agrégé
+- [x] Intégrer les graphiques d'analyse de CA (mensuel et annuel) avec Recharts
+- [x] Intégrer le reporting automatique de l'agence (synthèse des performances)
+- [x] Ajouter l'interface de modification des factures au statut brouillon avec libellés style facture.net
+- [x] Valider les tests Vitest et créer le checkpoint final
+- [x] Renforcer la présentation de facture avec un template visuel structuré inspiré des usages de facture.net
+- [ ] Créer un nouveau checkpoint après les modifications de reporting, graphiques et édition de brouillon
