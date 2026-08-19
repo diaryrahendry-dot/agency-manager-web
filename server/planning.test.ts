@@ -12,6 +12,8 @@ describe("AgencyManager Pro - statistiques dynamiques et Budget Planner", () => 
     expect(appRouter._def.procedures).toHaveProperty("planning.createBudgetSheet");
     expect(appRouter._def.procedures).toHaveProperty("planning.convertBudgetSheetToTransaction");
     expect(appRouter._def.procedures).toHaveProperty("planning.accountingStatistics");
+    expect(appRouter._def.procedures).toHaveProperty("planning.hrStatistics");
+    expect(appRouter._def.procedures).toHaveProperty("planning.caStatistics");
   });
 
   it("propose les filtres multidimensionnels et les totaux de tableur", () => {
@@ -23,6 +25,15 @@ describe("AgencyManager Pro - statistiques dynamiques et Budget Planner", () => 
     expect(homeSource).toContain("dynamicStatsTotals");
     expect(homeSource).toContain("accountingStatsView");
     expect(homeSource).toContain("accountingStatisticsQuery");
+    expect(homeSource).toContain("hrStatisticsQuery");
+    expect(homeSource).toContain("caStatisticsQuery");
+    expect(homeSource).toContain("Statistiques RH");
+    expect(homeSource).toContain("Statistiques CA");
+    expect(homeSource).toContain("Sorties par jour");
+    expect(homeSource).toContain("Nombre et montant des factures");
+    expect(homeSource).toContain("Encaissées");
+    expect(homeSource).toContain("En retard");
+    expect(homeSource).toContain("Annulées");
     expect(homeSource).toContain("Sheet");
     expect(homeSource).toContain("Gantt");
     expect(homeSource).toContain("Eisenhower");

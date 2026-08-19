@@ -23,6 +23,30 @@ function amountOf(value: unknown) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function invoiceServiceNames(itemsJson: string) {
+  try {
+    const parsed: unknown = JSON.parse(itemsJson);
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const names = items.map((item: unknown) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      const record = item as Record<string, unknown>;
+      return String(record.serviceName ?? record.service ?? record.label ?? record.description ?? record.name ?? record.title ?? "").trim();
+    }).filter(Boolean);
+    return Array.from(new Set(names));
+  } catch {
+    const fallback = itemsJson.trim();
+    return fallback ? [fallback.slice(0, 120)] : ["Service non renseigné"];
+  }
+}
+
+function invoiceStatusBucket(status: string) {
+  if (status === "payée") return "encaissée";
+  if (status === "en_retard") return "en retard";
+  if (status === "annulée") return "annulée";
+  return "autre";
+}
+
 
 export const appRouter = router({
   system: systemRouter,
@@ -651,6 +675,136 @@ export const appRouter = router({
         months: Array.from(monthsMap.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey)).map((month) => ({ ...month, revenueMga: convertEurToMga(month.revenueEur), expensesMga: convertEurToMga(month.expensesEur), balanceMga: convertEurToMga(month.balanceEur) })),
         totals: { entries: rows.filter((row) => row.type === "entrée").length, sorties: rows.filter((row) => row.type === "sortie").length, revenueEur: totalRevenueEur, expensesEur: totalExpensesEur, balanceEur: totalRevenueEur - totalExpensesEur, revenueMga: convertEurToMga(totalRevenueEur), expensesMga: convertEurToMga(totalExpensesEur), balanceMga: convertEurToMga(totalRevenueEur - totalExpensesEur) },
       };
+    }),
+    hrStatistics: protectedProcedure.input(z.object({
+      fromMonth: z.string().regex(/^\d{4}-\d{2}$/, "Le mois de début doit être au format AAAA-MM").optional(),
+      toMonth: z.string().regex(/^\d{4}-\d{2}$/, "Le mois de fin doit être au format AAAA-MM").optional(),
+      agentId: z.number().int().positive().optional(),
+      department: z.string().trim().optional(),
+    }).optional()).query(async ({ input }) => {
+      const [agentRows, timeEntryRows, advanceRows, transactionRows] = await Promise.all([
+        db.getAgents(),
+        db.getTimeEntries(),
+        db.getSalaryAdvances(),
+        db.getCashTransactions(),
+      ]);
+      const fromMonth = input?.fromMonth || "";
+      const toMonth = input?.toMonth || "";
+      const inRange = (monthKey: string) => (!fromMonth || monthKey >= fromMonth) && (!toMonth || monthKey <= toMonth);
+      const matchingAgents = agentRows.filter((agent) => (!input?.agentId || agent.id === input.agentId) && (!input?.department || agent.department === input.department));
+      const agentIds = new Set(matchingAgents.map((agent) => agent.id));
+      const entries = timeEntryRows.filter((entry) => agentIds.has(entry.agentId) && inRange(dateKey(entry.date).slice(0, 7)));
+      const advances = advanceRows.filter((advance) => agentIds.has(advance.agentId) && inRange(dateKey(advance.requestedDate).slice(0, 7)));
+      const hrCategory = (category: string) => /salaire|paie|avance|personnel|rh|prime|formation|congé|absence/i.test(category);
+      const cashOutflows = transactionRows.filter((transaction) => transaction.type === "sortie" && hrCategory(transaction.category) && inRange(dateKey(transaction.date).slice(0, 7)));
+      const dailyMap = new Map<string, { date: string; hours: number; workDays: number; advancesEur: number; cashOutEur: number }>();
+      const ensureDay = (date: string) => dailyMap.get(date) || { date, hours: 0, workDays: 0, advancesEur: 0, cashOutEur: 0 };
+      for (const entry of entries) {
+        const date = dateKey(entry.date);
+        const current = ensureDay(date);
+        const hours = amountOf(entry.hoursWorked);
+        current.hours += hours;
+        current.workDays += hours / 8;
+        dailyMap.set(date, current);
+      }
+      for (const advance of advances) {
+        const date = dateKey(advance.requestedDate);
+        const current = ensureDay(date);
+        current.advancesEur += amountOf(advance.amount);
+        dailyMap.set(date, current);
+      }
+      for (const transaction of cashOutflows) {
+        const date = dateKey(transaction.date);
+        const current = ensureDay(date);
+        current.cashOutEur += amountOf(transaction.amount);
+        dailyMap.set(date, current);
+      }
+      const daily = Array.from(dailyMap.values()).sort((a, b) => b.date.localeCompare(a.date)).map((row) => ({
+        ...row,
+        workDays: Number(row.workDays.toFixed(2)),
+        totalOutEur: row.advancesEur + row.cashOutEur,
+        advancesMga: convertEurToMga(row.advancesEur),
+        cashOutMga: convertEurToMga(row.cashOutEur),
+        totalOutMga: convertEurToMga(row.advancesEur + row.cashOutEur),
+      }));
+      const agentMapRows = new Map<number, { agentId: number; agentName: string; department: string; hours: number; workDays: number; salaryEur: number; advancesEur: number }>();
+      for (const agent of matchingAgents) agentMapRows.set(agent.id, { agentId: agent.id, agentName: agent.name, department: agent.department, hours: 0, workDays: 0, salaryEur: amountOf(agent.salary), advancesEur: 0 });
+      for (const entry of entries) {
+        const current = agentMapRows.get(entry.agentId);
+        if (!current) continue;
+        const hours = amountOf(entry.hoursWorked);
+        current.hours += hours;
+        current.workDays += hours / 8;
+      }
+      for (const advance of advances) {
+        const current = agentMapRows.get(advance.agentId);
+        if (current) current.advancesEur += amountOf(advance.amount);
+      }
+      const byAgent = Array.from(agentMapRows.values()).map((row) => ({ ...row, workDays: Number(row.workDays.toFixed(2)), salaryMga: convertEurToMga(row.salaryEur), advancesMga: convertEurToMga(row.advancesEur) })).sort((a, b) => b.workDays - a.workDays);
+      const departmentMap = new Map<string, { department: string; agentCount: number; hours: number; workDays: number; salaryEur: number; advancesEur: number }>();
+      for (const row of byAgent) {
+        const current = departmentMap.get(row.department) || { department: row.department, agentCount: 0, hours: 0, workDays: 0, salaryEur: 0, advancesEur: 0 };
+        current.agentCount += 1;
+        current.hours += row.hours;
+        current.workDays += row.workDays;
+        current.salaryEur += row.salaryEur;
+        current.advancesEur += row.advancesEur;
+        departmentMap.set(row.department, current);
+      }
+      const byDepartment = Array.from(departmentMap.values()).map((row) => ({ ...row, workDays: Number(row.workDays.toFixed(2)), salaryMga: convertEurToMga(row.salaryEur), advancesMga: convertEurToMga(row.advancesEur) })).sort((a, b) => b.workDays - a.workDays);
+      const plannedPayrollEur = matchingAgents.reduce((sum, agent) => sum + amountOf(agent.salary), 0);
+      const advancesEur = advances.reduce((sum, advance) => sum + amountOf(advance.amount), 0);
+      const cashOutEur = cashOutflows.reduce((sum, transaction) => sum + amountOf(transaction.amount), 0);
+      return {
+        filters: { fromMonth, toMonth, agentId: input?.agentId || null, department: input?.department || "" },
+        agents: matchingAgents.map((agent) => ({ id: agent.id, name: agent.name, department: agent.department })),
+        departments: Array.from(new Set(agentRows.map((agent) => agent.department))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr")),
+        daily,
+        byAgent,
+        byDepartment,
+        totals: { hours: entries.reduce((sum, entry) => sum + amountOf(entry.hoursWorked), 0), workDays: Number(entries.reduce((sum, entry) => sum + amountOf(entry.hoursWorked) / 8, 0).toFixed(2)), plannedPayrollEur, plannedPayrollMga: convertEurToMga(plannedPayrollEur), advancesEur, advancesMga: convertEurToMga(advancesEur), cashOutEur, cashOutMga: convertEurToMga(cashOutEur) },
+      };
+    }),
+    caStatistics: protectedProcedure.input(z.object({
+      fromMonth: z.string().regex(/^\d{4}-\d{2}$/, "Le mois de début doit être au format AAAA-MM").optional(),
+      toMonth: z.string().regex(/^\d{4}-\d{2}$/, "Le mois de fin doit être au format AAAA-MM").optional(),
+      clientId: z.number().int().positive().optional(),
+      serviceName: z.string().trim().optional(),
+      status: z.enum(["tous", "encaissée", "en retard", "annulée", "autre"]).default("tous"),
+    }).optional()).query(async ({ input }) => {
+      const [invoiceRows, clientRows] = await Promise.all([db.getInvoices(), db.getClients()]);
+      const clientMap = new Map(clientRows.map((client) => [client.id, client.companyName]));
+      const fromMonth = input?.fromMonth || "";
+      const toMonth = input?.toMonth || "";
+      const inRange = (monthKey: string) => (!fromMonth || monthKey >= fromMonth) && (!toMonth || monthKey <= toMonth);
+      const selected = invoiceRows.filter((invoice) => {
+        const monthKey = dateKey(invoice.issueDate).slice(0, 7);
+        const services = invoiceServiceNames(invoice.itemsJson);
+        const bucket = invoiceStatusBucket(invoice.status);
+        return inRange(monthKey) && (!input?.clientId || invoice.clientId === input.clientId) && (!input?.serviceName || services.includes(input.serviceName)) && (!input?.status || input.status === "tous" || bucket === input.status);
+      });
+      const rows = selected.map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: dateKey(invoice.issueDate),
+        dueDate: dateKey(invoice.dueDate),
+        monthKey: dateKey(invoice.issueDate).slice(0, 7),
+        clientId: invoice.clientId,
+        clientName: clientMap.get(invoice.clientId) || "Client non renseigné",
+        services: invoiceServiceNames(invoice.itemsJson),
+        status: invoice.status,
+        statusBucket: invoiceStatusBucket(invoice.status),
+        totalAmountEur: amountOf(invoice.totalAmount),
+        totalAmountMga: convertEurToMga(amountOf(invoice.totalAmount)),
+      }));
+      const byPeriod = Array.from(new Set(rows.map((row) => row.monthKey))).sort().map((key) => { const matching = rows.filter((row) => row.monthKey === key); return { key, invoiceCount: matching.length, amountEur: matching.reduce((sum, row) => sum + row.totalAmountEur, 0), amountMga: convertEurToMga(matching.reduce((sum, row) => sum + row.totalAmountEur, 0)) }; });
+      const byClient = Array.from(new Set(rows.map((row) => row.clientName))).sort((a, b) => a.localeCompare(b, "fr")).map((key) => { const matching = rows.filter((row) => row.clientName === key); return { key, invoiceCount: matching.length, amountEur: matching.reduce((sum, row) => sum + row.totalAmountEur, 0), amountMga: convertEurToMga(matching.reduce((sum, row) => sum + row.totalAmountEur, 0)) }; });
+      const serviceKeys = Array.from(new Set(rows.flatMap((row) => row.services))).sort((a, b) => a.localeCompare(b, "fr"));
+      const byService = serviceKeys.map((key) => { const matching = rows.filter((row) => row.services.includes(key)); return { key, invoiceCount: matching.length, amountEur: matching.reduce((sum, row) => sum + row.totalAmountEur, 0), amountMga: convertEurToMga(matching.reduce((sum, row) => sum + row.totalAmountEur, 0)) }; });
+      const statusKeys = ["encaissée", "en retard", "annulée", "autre"];
+      const byStatus = statusKeys.map((key) => { const matching = rows.filter((row) => row.statusBucket === key); return { key, invoiceCount: matching.length, amountEur: matching.reduce((sum, row) => sum + row.totalAmountEur, 0), amountMga: convertEurToMga(matching.reduce((sum, row) => sum + row.totalAmountEur, 0)) }; });
+      const totalAmountEur = rows.reduce((sum, row) => sum + row.totalAmountEur, 0);
+      return { filters: { fromMonth, toMonth, clientId: input?.clientId || null, serviceName: input?.serviceName || "", status: input?.status || "tous" }, clients: clientRows.map((client) => ({ id: client.id, name: client.companyName })), services: serviceKeys, rows, byPeriod, byClient, byService, byStatus, totals: { invoiceCount: rows.length, amountEur: totalAmountEur, amountMga: convertEurToMga(totalAmountEur), encaissed: rows.filter((row) => row.statusBucket === "encaissée").length, overdue: rows.filter((row) => row.statusBucket === "en retard").length, cancelled: rows.filter((row) => row.statusBucket === "annulée").length } };
     }),
     listDynamicStats: protectedProcedure.input(z.object({
       monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional(),

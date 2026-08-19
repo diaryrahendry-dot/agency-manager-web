@@ -102,6 +102,10 @@
 - [x] Vérifier la navigation responsive et exécuter les tests Vitest et TypeScript
 - [x] Créer le checkpoint final de la présentation des rubriques
 
-- [ ] Gérer les données statistiques à partir des mouvements réels de comptabilité avec vues Sheet, Gantt et Eisenhower
-- [ ] Renforcer le Budget Planner avec un bouton explicite « Convertir en sortie de caisse » et la mise à jour automatique de la comptabilité
+- [x] Gérer les données statistiques à partir des mouvements réels de comptabilité avec vues Sheet, Gantt et Eisenhower
+- [x] Renforcer le Budget Planner avec un bouton explicite « Convertir en sortie de caisse » et la mise à jour automatique de la comptabilité
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [ ] Séparer les statistiques en deux sections distinctes : Statistiques RH (dépenses et sorties journalières/mensuelles, par équipe/agent) et Statistiques CA (factures par période, client, service et statut : encaissé, en retard, annulé)
+- [ ] Mettre à jour les procédures tRPC et l’interface de navigation pour les deux rubriques spécialisées
 - [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
