@@ -1,21 +1,21 @@
 # Project TODO
 
-- [ ] Établir l’architecture fonctionnelle interconnectée des modules RH, comptabilité, CRM, clients et facturation
-- [ ] Définir le modèle de données pour les agents, pointages, congés, avances, contrats, tickets et documents
-- [ ] Définir le modèle de données pour les mouvements de caisse, le chiffre d’affaires et les exports
-- [ ] Définir le modèle de données CRM pour leads, rendez-vous, suivis, priorités et conversion en clients
-- [ ] Définir le modèle de données clients pour échanges, regroupements, documents, devis et factures
-- [ ] Mettre en place le stockage sécurisé S3 pour toutes les pièces jointes avec upload et téléchargement depuis l’interface
-- [ ] Construire la navigation et le shell d’application web responsive haut de gamme
-- [ ] Développer le tableau de bord exécutif avec indicateurs RH, comptables, CRM et facturation
-- [ ] Développer le module RH : fiches agents, pointages, congés, avances, contrats, documents, ancienneté et tickets
-- [ ] Développer le module comptabilité : entrées/sorties de caisse, détails, reporting mensuel/annuel et exports Excel/CSV
-- [ ] Développer le module CRM : Kanban leads, qualification, rendez-vous, suivis, priorité, montant attendu et prochain contact
-- [ ] Développer la conversion lead vers fiche client en conservant l’historique
-- [ ] Développer la base clients : fiches, historique, filtres, regroupements, documents et factures associés
-- [ ] Développer les devis et factures : templates style facture.net, numérotation automatique et statuts
-- [ ] Ajouter les interconnexions entre agents/tickets, clients/devis/factures et documents
-- [ ] Ajouter les états de chargement, états vides, validations, confirmations et notifications d’interface
-- [ ] Écrire et exécuter les tests Vitest des procédures principales
-- [ ] Vérifier l’interface en responsive desktop/tablette/mobile et corriger les défauts visuels
-- [ ] Créer le checkpoint final après validation
+- [x] Établir l’architecture fonctionnelle interconnectée des modules RH, comptabilité, CRM, clients et facturation
+- [x] Définir le modèle de données pour les agents, pointages, congés, avances, contrats, tickets et documents
+- [x] Définir le modèle de données pour les mouvements de caisse, le chiffre d’affaires et les exports
+- [x] Définir le modèle de données CRM pour leads, rendez-vous, suivis, priorités et conversion en clients
+- [x] Définir le modèle de données clients pour échanges, regroupements, documents, devis et factures
+- [x] Mettre en place le stockage sécurisé S3 pour toutes les pièces jointes avec upload et téléchargement depuis l’interface
+- [x] Construire la navigation et le shell d’application web responsive haut de gamme
+- [x] Développer le tableau de bord exécutif avec indicateurs RH, comptables, CRM et facturation
+- [x] Développer le module RH : fiches agents, pointages, congés, avances, contrats, documents, ancienneté et tickets
+- [x] Développer le module comptabilité : entrées/sorties de caisse, détails, reporting mensuel/annuel et exports Excel/CSV
+- [x] Développer le module CRM : Kanban leads, qualification, rendez-vous, suivis, priorité, montant attendu et prochain contact
+- [x] Développer la conversion lead vers fiche client en conservant l’historique
+- [x] Développer la base clients : fiches, historique, filtres, regroupements, documents et factures associés
+- [x] Développer les devis et factures : templates style facture.net, numérotation automatique et statuts
+- [x] Ajouter les interconnexions entre agents/tickets, clients/devis/factures et documents
+- [x] Ajouter les états de chargement, états vides, validations, confirmations et notifications d’interface
+- [x] Écrire et exécuter les tests Vitest des procédures principales
+- [x] Vérifier l’interface en responsive desktop/tablette/mobile et corriger les défauts visuels
+- [x] Créer le checkpoint final après validation
