@@ -134,10 +134,13 @@
 - [x] Ajouter des tests Vitest de succès et d’échec pour createProject, assign/removeProjectMember, resendInvitation, preferences et projects.setActive
 - [x] Ajouter des tests des transitions valides et invalides des devis et factures brouillon vers confirmé ou annulé
 - [x] Effectuer une vérification responsive tablette en plus du desktop et mobile
-- [ ] Sauvegarder un checkpoint final après ces corrections de sécurité et de couverture
+- [x] Sauvegarder un checkpoint final après ces corrections de sécurité et de couverture
 - [x] Ajouter des tests d’isolement inter-projets couvrant CRM, RH, comptabilité et facturation
 - [x] Compléter la revue et le scoping des mutations par identifiant restantes des modules principaux
 - [x] Ajouter les tests succès/échec de preferences.update pour la devise, l’affichage MGA et le projet actif non autorisé
 - [x] Compléter la matrice des transitions brouillon devis/factures : confirmer et annuler en succès, refus hors brouillon
 - [x] Ajouter un test de succès pour confirmInvoiceDraft sur une facture en brouillon
 - [x] Ajouter les refus hors brouillon pour confirmQuoteDraft et cancelQuoteDraft
+- [x] Diagnostiquer l’erreur d’authentification dans les logs serveur et le flux OAuth
+- [x] Corriger le mappage d’utilisateur ou de session OAuth pour éviter tout blocage de connexion
+- [x] Valider la connexion avec les tests unitaires et un nouveau checkpoint

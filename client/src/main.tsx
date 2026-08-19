@@ -43,10 +43,6 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       headers() {
-        // Preview auto-login fallback: when the browser blocks iframe cookies
-        // (Safari ITP / private browsing / WebView), the runtime mirrors the
-        // session into sessionStorage so we can forward it as a Bearer token.
-        // The regular OAuth cookie flow keeps working and takes priority server-side.
         try {
           const raw = sessionStorage.getItem("manus-cookie");
           if (raw) {
@@ -58,7 +54,7 @@ const trpcClient = trpc.createClient({
             }
           }
         } catch {
-          // sessionStorage unavailable
+          // ignore
         }
         return {};
       },
@@ -66,6 +62,19 @@ const trpcClient = trpc.createClient({
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",
+        }).then(res => {
+          try {
+            const cookieHeader = res.headers.get("set-cookie");
+            if (cookieHeader && typeof window !== "undefined") {
+              const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
+              if (match && match[1]) {
+                sessionStorage.setItem("manus-cookie", `${COOKIE_NAME}=${match[1]}`);
+              }
+            }
+          } catch {
+            // ignore
+          }
+          return res;
         });
       },
     }),
@@ -73,9 +82,9 @@ const trpcClient = trpc.createClient({
 });
 
 createRoot(document.getElementById("root")!).render(
-  <trpc.Provider client={trpcClient} queryClient={queryClient}>
-    <QueryClientProvider client={queryClient}>
+  <QueryClientProvider client={queryClient}>
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <App />
-    </QueryClientProvider>
-  </trpc.Provider>
+    </trpc.Provider>
+  </QueryClientProvider>
 );
