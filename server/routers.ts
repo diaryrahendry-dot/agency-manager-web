@@ -7,7 +7,7 @@ import * as db from "./db";
 import { 
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices, dynamicStats, budgetSheets 
+  quotes, invoices, catalogItems, dynamicStats, budgetSheets 
 } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { storagePut } from "./storage";
@@ -47,6 +47,60 @@ function invoiceStatusBucket(status: string) {
   return "autre";
 }
 
+type CommercialLine = {
+  catalogItemId?: number;
+  label?: string;
+  description?: string;
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  currency?: "EUR" | "MGA";
+  taxRate?: number;
+  discountType?: "none" | "percent" | "fixed";
+  discountValue?: number;
+};
+
+function parseCommercialLines(itemsJson: string): CommercialLine[] {
+  try {
+    const parsed: unknown = JSON.parse(itemsJson);
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    return values.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")).map((item) => ({
+      catalogItemId: Number.isFinite(Number(item.catalogItemId)) ? Number(item.catalogItemId) : undefined,
+      label: String(item.label ?? item.serviceName ?? item.service ?? item.name ?? item.title ?? "").trim(),
+      description: String(item.description ?? "").trim(),
+      quantity: Math.max(0, Number(item.quantity ?? item.qty ?? 1) || 0),
+      unit: String(item.unit ?? "unité"),
+      unitPrice: Math.max(0, Number(item.unitPrice ?? item.price ?? item.amount ?? 0) || 0),
+      currency: item.currency === "MGA" ? "MGA" : "EUR",
+      taxRate: Math.max(0, Number(item.taxRate ?? 0) || 0),
+      discountType: item.discountType === "percent" || item.discountType === "fixed" ? item.discountType : "none",
+      discountValue: Math.max(0, Number(item.discountValue ?? 0) || 0),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function calculateCommercialTotals(itemsJson: string, fallbackTotal: string, discountType: "none" | "percent" | "fixed", discountValue: string, taxRate: string) {
+  const lines = parseCommercialLines(itemsJson);
+  const subtotal = lines.length > 0
+    ? lines.reduce((sum, line) => sum + (line.quantity || 0) * (line.unitPrice || 0), 0)
+    : amountOf(fallbackTotal);
+  const lineDiscount = lines.reduce((sum, line) => {
+    const base = (line.quantity || 0) * (line.unitPrice || 0);
+    return sum + (line.discountType === "percent" ? base * Math.min(100, line.discountValue || 0) / 100 : line.discountType === "fixed" ? Math.min(base, line.discountValue || 0) : 0);
+  }, 0);
+  const globalDiscount = discountType === "percent" ? subtotal * Math.min(100, amountOf(discountValue)) / 100 : discountType === "fixed" ? Math.min(subtotal, amountOf(discountValue)) : 0;
+  const discountAmount = Math.min(subtotal, lineDiscount + globalDiscount);
+  const taxableBase = Math.max(0, subtotal - discountAmount);
+  const taxAmount = taxableBase * Math.max(0, amountOf(taxRate)) / 100;
+  return {
+    subtotalAmount: subtotal.toFixed(2),
+    discountAmount: discountAmount.toFixed(2),
+    taxAmount: taxAmount.toFixed(2),
+    totalAmount: (taxableBase + taxAmount).toFixed(2),
+  };
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -1157,27 +1211,106 @@ export const appRouter = router({
 
   // Module Facturation et Devis
   billing: router({
+    listCatalogItems: protectedProcedure.query(async () => {
+      return await db.getCatalogItems();
+    }),
+    createCatalogItem: protectedProcedure.input(z.object({
+      itemType: z.enum(["produit", "prestation"]).default("prestation"),
+      label: z.string().trim().min(1, "Le libellé est obligatoire"),
+      description: z.string().optional(),
+      unit: z.string().trim().min(1).default("unité"),
+      unitPrice: z.string().trim().min(1),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      pricingMode: z.enum(["ponctuel", "récurrent", "mensuel"]).default("ponctuel"),
+      taxRate: z.string().trim().default("0"),
+      clientVisible: z.boolean().default(true),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const price = amountOf(input.unitPrice);
+      if (price < 0) throw new Error("Le tarif ne peut pas être négatif");
+      await database.insert(catalogItems).values({
+        itemType: input.itemType,
+        label: input.label,
+        description: input.description || null,
+        unit: input.unit,
+        unitPrice: price.toFixed(2),
+        currency: input.currency,
+        pricingMode: input.pricingMode,
+        taxRate: Math.max(0, amountOf(input.taxRate)).toFixed(2),
+        clientVisible: input.clientVisible ? 1 : 0,
+        status: "actif",
+      });
+      return { success: true };
+    }),
+    updateCatalogItem: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      itemType: z.enum(["produit", "prestation"]),
+      label: z.string().trim().min(1),
+      description: z.string().optional(),
+      unit: z.string().trim().min(1),
+      unitPrice: z.string().trim().min(1),
+      currency: z.enum(["EUR", "MGA"]),
+      pricingMode: z.enum(["ponctuel", "récurrent", "mensuel"]),
+      taxRate: z.string().trim().default("0"),
+      clientVisible: z.boolean().default(true),
+      status: z.enum(["actif", "inactif"]).default("actif"),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.update(catalogItems).set({
+        itemType: input.itemType,
+        label: input.label,
+        description: input.description || null,
+        unit: input.unit,
+        unitPrice: amountOf(input.unitPrice).toFixed(2),
+        currency: input.currency,
+        pricingMode: input.pricingMode,
+        taxRate: Math.max(0, amountOf(input.taxRate)).toFixed(2),
+        clientVisible: input.clientVisible ? 1 : 0,
+        status: input.status,
+      }).where(eq(catalogItems.id, input.id));
+      return { success: true };
+    }),
+    archiveCatalogItem: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.update(catalogItems).set({ status: "inactif" }).where(eq(catalogItems.id, input.id));
+      return { success: true };
+    }),
     listQuotes: protectedProcedure.query(async () => {
       return await db.getQuotes();
     }),
     createQuote: protectedProcedure.input(z.object({
-      quoteNumber: z.string(),
-      clientId: z.number(),
-      issueDate: z.string(),
-      validUntil: z.string(),
-      totalAmount: z.string(),
-      itemsJson: z.string(),
+      quoteNumber: z.string().trim().min(1),
+      clientId: z.number().int().positive(),
+      issueDate: z.string().trim().min(1),
+      validUntil: z.string().trim().min(1),
+      itemsJson: z.string().trim().min(1),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      documentProfile: z.enum(["fr", "mg"]).default("fr"),
+      discountType: z.enum(["none", "percent", "fixed"]).default("none"),
+      discountValue: z.string().trim().default("0"),
+      taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
       await database.insert(quotes).values({
         quoteNumber: input.quoteNumber,
         clientId: input.clientId,
         issueDate: input.issueDate,
         validUntil: input.validUntil,
-        totalAmount: input.totalAmount,
+        subtotalAmount: totals.subtotalAmount,
+        discountType: input.discountType,
+        discountValue: amountOf(input.discountValue).toFixed(2),
+        taxRate: amountOf(input.taxRate).toFixed(2),
+        taxAmount: totals.taxAmount,
+        totalAmount: totals.totalAmount,
+        currency: input.currency,
+        documentProfile: input.documentProfile,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
         termsAndConditions: input.termsAndConditions || null,
@@ -1199,25 +1332,37 @@ export const appRouter = router({
       return await db.getInvoices();
     }),
     createInvoice: protectedProcedure.input(z.object({
-      invoiceNumber: z.string(),
-      clientId: z.number(),
-      quoteId: z.number().optional(),
-      issueDate: z.string(),
-      dueDate: z.string(),
-      totalAmount: z.string(),
-      itemsJson: z.string(),
+      invoiceNumber: z.string().trim().min(1),
+      clientId: z.number().int().positive(),
+      quoteId: z.number().int().positive().optional(),
+      issueDate: z.string().trim().min(1),
+      dueDate: z.string().trim().min(1),
+      itemsJson: z.string().trim().min(1),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      documentProfile: z.enum(["fr", "mg"]).default("fr"),
+      discountType: z.enum(["none", "percent", "fixed"]).default("none"),
+      discountValue: z.string().trim().default("0"),
+      taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
       await database.insert(invoices).values({
         invoiceNumber: input.invoiceNumber,
         clientId: input.clientId,
         quoteId: input.quoteId || null,
         issueDate: input.issueDate,
         dueDate: input.dueDate,
-        totalAmount: input.totalAmount,
+        subtotalAmount: totals.subtotalAmount,
+        discountType: input.discountType,
+        discountValue: amountOf(input.discountValue).toFixed(2),
+        taxRate: amountOf(input.taxRate).toFixed(2),
+        taxAmount: totals.taxAmount,
+        totalAmount: totals.totalAmount,
+        currency: input.currency,
+        documentProfile: input.documentProfile,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
         termsAndConditions: input.termsAndConditions || null,
@@ -1235,13 +1380,18 @@ export const appRouter = router({
       return { success: true };
     }),
     updateInvoiceDraft: protectedProcedure.input(z.object({
-      id: z.number(),
-      clientId: z.number(),
-      quoteId: z.number().optional(),
-      issueDate: z.string(),
-      dueDate: z.string(),
-      totalAmount: z.string(),
-      itemsJson: z.string(),
+      id: z.number().int().positive(),
+      invoiceNumber: z.string().trim().min(1),
+      clientId: z.number().int().positive(),
+      quoteId: z.number().int().positive().optional(),
+      issueDate: z.string().trim().min(1),
+      dueDate: z.string().trim().min(1),
+      itemsJson: z.string().trim().min(1),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      documentProfile: z.enum(["fr", "mg"]).default("fr"),
+      discountType: z.enum(["none", "percent", "fixed"]).default("none"),
+      discountValue: z.string().trim().default("0"),
+      taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
@@ -1250,12 +1400,20 @@ export const appRouter = router({
       const existing = await database.select().from(invoices).where(eq(invoices.id, input.id)).limit(1);
       if (existing.length === 0) throw new Error("Facture introuvable");
       if (existing[0].status !== "brouillon") throw new Error("Seules les factures en brouillon peuvent être modifiées");
+      const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
       await database.update(invoices).set({
         clientId: input.clientId,
         quoteId: input.quoteId || null,
         issueDate: input.issueDate,
         dueDate: input.dueDate,
-        totalAmount: input.totalAmount,
+        subtotalAmount: totals.subtotalAmount,
+        discountType: input.discountType,
+        discountValue: amountOf(input.discountValue).toFixed(2),
+        taxRate: amountOf(input.taxRate).toFixed(2),
+        taxAmount: totals.taxAmount,
+        totalAmount: totals.totalAmount,
+        currency: input.currency,
+        documentProfile: input.documentProfile,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
         termsAndConditions: input.termsAndConditions || null,

@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users, agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices 
+  quotes, invoices, catalogItems 
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -181,4 +181,10 @@ export async function getInvoices() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(invoices).orderBy(desc(invoices.id));
+}
+
+export async function getCatalogItems() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(catalogItems).orderBy(desc(catalogItems.id));
 }

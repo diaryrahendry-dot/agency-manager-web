@@ -28,6 +28,83 @@ import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const WORKDAY_HOURS = 8;
+
+type BillingLine = {
+  catalogItemId?: number;
+  label: string;
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  currency: CurrencyCode;
+  taxRate: string;
+  discountType: "none" | "percent" | "fixed";
+  discountValue: string;
+};
+
+const emptyBillingLine = (currency: CurrencyCode = "EUR"): BillingLine => ({
+  label: "",
+  description: "",
+  quantity: "1",
+  unit: "unité",
+  unitPrice: "0",
+  currency,
+  taxRate: "0",
+  discountType: "none",
+  discountValue: "0",
+});
+
+const parseBillingLines = (value: string | undefined, currency: CurrencyCode = "EUR"): BillingLine[] => {
+  if (!value) return [emptyBillingLine(currency)];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    const lines = values.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")).map(item => ({
+      catalogItemId: Number.isFinite(Number(item.catalogItemId)) ? Number(item.catalogItemId) : undefined,
+      label: String(item.label ?? item.serviceName ?? item.service ?? item.name ?? item.title ?? ""),
+      description: String(item.description ?? ""),
+      quantity: String(item.quantity ?? item.qty ?? 1),
+      unit: String(item.unit ?? "unité"),
+      unitPrice: String(item.unitPrice ?? item.price ?? item.amount ?? 0),
+      currency: item.currency === "MGA" ? "MGA" as CurrencyCode : currency,
+      taxRate: String(item.taxRate ?? 0),
+      discountType: (item.discountType === "percent" || item.discountType === "fixed" ? item.discountType : "none") as BillingLine["discountType"],
+      discountValue: String(item.discountValue ?? 0),
+    }));
+    return lines.length > 0 ? lines : [emptyBillingLine(currency)];
+  } catch {
+    return [{ ...emptyBillingLine(currency), label: value }];
+  }
+};
+
+const serializeBillingLines = (lines: BillingLine[]) => JSON.stringify(lines.map(line => ({
+  catalogItemId: line.catalogItemId,
+  label: line.label,
+  description: line.description,
+  quantity: Number(line.quantity) || 0,
+  unit: line.unit,
+  unitPrice: Number(line.unitPrice) || 0,
+  currency: line.currency,
+  taxRate: Number(line.taxRate) || 0,
+  discountType: line.discountType,
+  discountValue: Number(line.discountValue) || 0,
+})));
+
+const calculateBillingTotals = (lines: BillingLine[], discountType: "none" | "percent" | "fixed", discountValue: string, taxRate: string) => {
+  const subtotal = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0), 0);
+  const lineDiscount = lines.reduce((sum, line) => {
+    const base = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
+    const value = Math.max(0, Number(line.discountValue) || 0);
+    return sum + (line.discountType === "percent" ? base * Math.min(100, value) / 100 : line.discountType === "fixed" ? Math.min(base, value) : 0);
+  }, 0);
+  const globalValue = Math.max(0, Number(discountValue) || 0);
+  const globalDiscount = discountType === "percent" ? subtotal * Math.min(100, globalValue) / 100 : discountType === "fixed" ? Math.min(subtotal, globalValue) : 0;
+  const discount = Math.min(subtotal, lineDiscount + globalDiscount);
+  const taxable = Math.max(0, subtotal - discount);
+  const tax = taxable * Math.max(0, Number(taxRate) || 0) / 100;
+  return { subtotal, discount, taxable, tax, total: taxable + tax };
+};
+
 const ACCOUNTING_EISENHOWER_QUADRANTS = [
   { key: "important-urgent", title: "À décider maintenant", description: "Montants importants et actions urgentes", className: "border-rose-200 bg-rose-50", badgeClassName: "bg-rose-100 text-rose-800" },
   { key: "important-non-urgent", title: "À planifier", description: "Montants importants à programmer", className: "border-amber-200 bg-amber-50", badgeClassName: "bg-amber-100 text-amber-800" },
@@ -105,6 +182,7 @@ export default function Home() {
   const interactionsQuery = trpc.clientsModule.listInteractions.useQuery(undefined, { enabled: isAuthenticated });
   const documentsQuery = trpc.clientsModule.listDocuments.useQuery(undefined, { enabled: isAuthenticated });
   
+  const catalogItemsQuery = trpc.billing.listCatalogItems.useQuery(undefined, { enabled: isAuthenticated });
   const quotesQuery = trpc.billing.listQuotes.useQuery(undefined, { enabled: isAuthenticated });
   const invoicesQuery = trpc.billing.listInvoices.useQuery(undefined, { enabled: isAuthenticated });
   const nextInvoiceNumberQuery = trpc.billing.nextInvoiceNumber.useQuery(undefined, { enabled: isAuthenticated });
@@ -155,13 +233,21 @@ export default function Home() {
   const [isClientOpen, setIsClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState({ companyName: "", contactName: "", email: "", phone: "", address: "", industry: "Conseil", category: "Standard", notes: "" });
 
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [editingCatalogId, setEditingCatalogId] = useState<number | null>(null);
+  const [catalogForm, setCatalogForm] = useState({ itemType: "prestation" as "produit" | "prestation", label: "", description: "", unit: "unité", unitPrice: "0", currency: "MGA" as CurrencyCode, pricingMode: "ponctuel" as "ponctuel" | "récurrent" | "mensuel", taxRate: "0", clientVisible: true, status: "actif" as "actif" | "inactif" });
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
   const [isQuoteOpen, setIsQuoteOpen] = useState(false);
   const [eurToMgaRate, setEurToMgaRate] = useState(String(DEFAULT_EUR_TO_MGA));
   const [showMGAEquivalent, setShowMGAEquivalent] = useState(true);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
-  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
-  const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
+  const [invoiceLines, setInvoiceLines] = useState<BillingLine[]>([{ ...emptyBillingLine("EUR"), label: "Prestation conseil", quantity: "1", unitPrice: "2400" }]);
+  const [quoteLines, setQuoteLines] = useState<BillingLine[]>([{ ...emptyBillingLine("EUR"), label: "Prestation conseil", quantity: "1", unitPrice: "2400" }]);
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", currency: "EUR" as CurrencyCode, documentProfile: "fr" as "fr" | "mg", discountType: "none" as "none" | "percent" | "fixed", discountValue: "0", taxRate: "0", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
+  const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", currency: "EUR" as CurrencyCode, documentProfile: "fr" as "fr" | "mg", discountType: "none" as "none" | "percent" | "fixed", discountValue: "0", taxRate: "0", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
+
+  const quoteTotals = calculateBillingTotals(quoteLines, quoteForm.discountType, quoteForm.discountValue, quoteForm.taxRate);
+  const invoiceTotals = calculateBillingTotals(invoiceLines, invoiceForm.discountType, invoiceForm.discountValue, invoiceForm.taxRate);
 
   const currentEurToMgaRate = Number(eurToMgaRate) > 0 ? Number(eurToMgaRate) : DEFAULT_EUR_TO_MGA;
   const toStoredEur = (mgaValue: string) => convertMgaToEur(Number(mgaValue), currentEurToMgaRate).toFixed(2);
@@ -426,6 +512,34 @@ export default function Home() {
       utils.clientsModule.listClients.invalidate();
     },
     onError: (err) => toast.error("Erreur : " + err.message)
+  });
+
+  const createCatalogItemMutation = trpc.billing.createCatalogItem.useMutation({
+    onSuccess: () => {
+      toast.success(editingCatalogId ? "Élément du catalogue mis à jour." : "Élément ajouté au catalogue.");
+      setIsCatalogOpen(false);
+      setEditingCatalogId(null);
+      utils.billing.listCatalogItems.invalidate();
+    },
+    onError: (err) => toast.error("Catalogue : " + err.message),
+  });
+
+  const updateCatalogItemMutation = trpc.billing.updateCatalogItem.useMutation({
+    onSuccess: () => {
+      toast.success("Élément du catalogue mis à jour.");
+      setIsCatalogOpen(false);
+      setEditingCatalogId(null);
+      utils.billing.listCatalogItems.invalidate();
+    },
+    onError: (err) => toast.error("Catalogue : " + err.message),
+  });
+
+  const archiveCatalogItemMutation = trpc.billing.archiveCatalogItem.useMutation({
+    onSuccess: () => {
+      toast.success("Élément archivé.");
+      utils.billing.listCatalogItems.invalidate();
+    },
+    onError: (err) => toast.error("Catalogue : " + err.message),
   });
 
   const createQuoteMutation = trpc.billing.createQuote.useMutation({
@@ -805,6 +919,9 @@ export default function Home() {
               </TabsTrigger>
               <TabsTrigger value="clients" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <Building2 className="w-4 h-4 mr-2" /> Base Clients
+              </TabsTrigger>
+              <TabsTrigger value="catalog" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+                <Briefcase className="w-4 h-4 mr-2" /> Catalogue
               </TabsTrigger>
               <TabsTrigger value="billing" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <FileText className="w-4 h-4 mr-2" /> Devis & Factures
@@ -1727,151 +1844,57 @@ export default function Home() {
             </Card>
           </TabsContent>
 
-          {/* FACTURATION ET DEVIS */}
-          <TabsContent value="billing" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight">Facturation & Devis</h2>
-                <p className="text-sm text-slate-500">Documents professionnels avec libellés clairs, numérotation automatique et statuts contrôlés</p>
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500"><span className="font-semibold text-slate-700">Conversion affichée :</span><span>1 EUR =</span><Input className="h-8 w-24 bg-white" inputMode="decimal" value={eurToMgaRate} onChange={e => setEurToMgaRate(e.target.value.replace(/[^0-9.]/g, ""))} aria-label="Taux euro vers ariary" /><span className="font-semibold text-slate-700">MGA</span><span className="text-slate-400">Taux de référence modifiable</span><span className="ml-2 h-4 w-px bg-slate-200" /><div className="flex items-center gap-2"><Switch checked={showMGAEquivalent} onCheckedChange={setShowMGAEquivalent} id="show-mga-equivalent" /><Label htmlFor="show-mga-equivalent" className="cursor-pointer text-xs font-semibold text-slate-700">Afficher l’équivalent MGA</Label></div></div>
-              </div>
-              <Dialog open={isQuoteOpen} onOpenChange={setIsQuoteOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" onClick={() => { setQuoteForm({ ...quoteForm, quoteNumber: nextQuoteNumberQuery.data || quoteForm.quoteNumber }); setIsQuoteOpen(true); }} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl">
-                    <FileText className="w-4 h-4 mr-2" /> Créer un devis
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-xl bg-white rounded-2xl">
-                  <DialogHeader><DialogTitle>Créer un devis professionnel</DialogTitle></DialogHeader>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-slate-900">
-                    <div className="flex items-start justify-between border-b border-slate-200 pb-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">AgencyManager Pro</p><p className="mt-1 text-xs text-slate-500">Proposition commerciale</p></div><div className="text-right"><p className="text-2xl font-black tracking-tight">DEVIS</p><p className="text-sm font-semibold text-slate-600">N° {quoteForm.quoteNumber}</p></div></div>
-                    <div className="grid grid-cols-2 gap-4 border-b border-slate-200 py-4 text-xs"><div><p className="font-bold uppercase tracking-wider text-slate-400">Proposé à</p><p className="mt-1 font-semibold">Client #{quoteForm.clientId}</p></div><div className="text-right"><p className="font-bold uppercase tracking-wider text-slate-400">Validité</p><p className="mt-1">Jusqu’au <span className="font-semibold">{quoteForm.validUntil}</span></p></div></div>
-                    <div className="flex items-start justify-between py-4 text-sm"><span>{quoteForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="text-right font-bold">{Number(quoteForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}{showMGAEquivalent && <span className="block text-xs font-medium text-slate-500">{formatMGA(Number(quoteForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span>}</span></div>
-                    <div className="flex justify-end border-t border-slate-200 pt-4 text-sm"><div className="space-y-1 text-right"><div className="font-semibold">Total de la proposition : {Number(quoteForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</div>{showMGAEquivalent && <div className="text-xs text-slate-500">Équivalent : {formatMGA(Number(quoteForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</div>}</div></div>
+          {/* CATALOGUE */}
+          <TabsContent value="catalog" className="space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div><h2 className="text-2xl font-bold tracking-tight">Catalogue produits & prestations</h2><p className="text-sm text-slate-500">Centralisez vos offres réutilisables dans les devis et factures, avec tarif, devise, récurrence et description client.</p></div>
+              <Dialog open={isCatalogOpen} onOpenChange={setIsCatalogOpen}>
+                <DialogTrigger asChild><Button onClick={() => { setEditingCatalogId(null); setCatalogForm({ itemType: "prestation", label: "", description: "", unit: "unité", unitPrice: "0", currency: "MGA", pricingMode: "ponctuel", taxRate: "0", clientVisible: true, status: "actif" }); }} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-500"><Plus className="mr-2 h-4 w-4" /> Ajouter au catalogue</Button></DialogTrigger>
+                <DialogContent className="max-w-2xl rounded-2xl bg-white">
+                  <DialogHeader><DialogTitle>{editingCatalogId ? "Modifier l’élément" : "Nouvel élément catalogue"}</DialogTitle><DialogDescription>Les descriptions visibles client seront reprises dans les lignes commerciales.</DialogDescription></DialogHeader>
+                  <div className="grid gap-4 py-3 md:grid-cols-2">
+                    <div className="space-y-2"><Label>Type</Label><Select value={catalogForm.itemType} onValueChange={value => setCatalogForm({ ...catalogForm, itemType: value as "produit" | "prestation" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="prestation">Prestation</SelectItem><SelectItem value="produit">Produit</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-2"><Label>Mode de tarification</Label><Select value={catalogForm.pricingMode} onValueChange={value => setCatalogForm({ ...catalogForm, pricingMode: value as "ponctuel" | "récurrent" | "mensuel" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ponctuel">Ponctuel</SelectItem><SelectItem value="récurrent">Récurrent</SelectItem><SelectItem value="mensuel">Mensuel</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-2 md:col-span-2"><Label>Libellé</Label><Input value={catalogForm.label} onChange={event => setCatalogForm({ ...catalogForm, label: event.target.value })} placeholder="Audit digital, abonnement support…" /></div>
+                    <div className="space-y-2 md:col-span-2"><Label>Description visible par le client</Label><Textarea value={catalogForm.description} onChange={event => setCatalogForm({ ...catalogForm, description: event.target.value })} placeholder="Décrivez précisément le périmètre livré." /></div>
+                    <div className="space-y-2"><Label>Unité</Label><Input value={catalogForm.unit} onChange={event => setCatalogForm({ ...catalogForm, unit: event.target.value })} placeholder="heure, forfait, mois…" /></div>
+                    <div className="space-y-2"><Label>Tarif unitaire</Label><Input inputMode="decimal" value={catalogForm.unitPrice} onChange={event => setCatalogForm({ ...catalogForm, unitPrice: event.target.value })} /></div>
+                    <div className="space-y-2"><Label>Devise</Label><Select value={catalogForm.currency} onValueChange={value => setCatalogForm({ ...catalogForm, currency: value as CurrencyCode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-2"><Label>TVA par défaut (%)</Label><Input inputMode="decimal" value={catalogForm.taxRate} onChange={event => setCatalogForm({ ...catalogForm, taxRate: event.target.value })} /></div>
+                    <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 md:col-span-2"><Switch checked={catalogForm.clientVisible} onCheckedChange={value => setCatalogForm({ ...catalogForm, clientVisible: value })} id="catalog-client-visible" /><Label htmlFor="catalog-client-visible" className="cursor-pointer">Description visible sur les documents client</Label></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 py-4">
-                    <div className="space-y-2"><Label>Numéro du devis</Label><Input value={quoteForm.quoteNumber} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} /></div>
-                    <div className="space-y-2"><Label>Référence client</Label><Input type="number" value={quoteForm.clientId} onChange={e => setQuoteForm({ ...quoteForm, clientId: Number(e.target.value) })} /></div>
-                    <div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div>
-                    <div className="space-y-2"><Label>Valable jusqu’au</Label><Input type="date" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div>
-                    <div className="space-y-2 col-span-2"><Label>Montant total (€)</Label><Input inputMode="decimal" value={quoteForm.totalAmount} onChange={e => setQuoteForm({ ...quoteForm, totalAmount: e.target.value })} /></div>
-                    <div className="space-y-2 col-span-2"><Label>Libellé / lignes de prestation</Label><Textarea value={quoteForm.itemsJson} onChange={e => setQuoteForm({ ...quoteForm, itemsJson: e.target.value })} /></div>
-                    <div className="space-y-2 col-span-2"><Label>Notes</Label><Textarea value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /></div>
-                    <div className="space-y-2 col-span-2"><Label>Conditions générales de vente (CGV)</Label><Textarea value={quoteForm.termsAndConditions} onChange={e => setQuoteForm({ ...quoteForm, termsAndConditions: e.target.value })} placeholder="Validité, paiement, propriété intellectuelle, annulation…" /></div>
-                  </div>
-                  <DialogFooter><Button onClick={() => createQuoteMutation.mutate(quoteForm)} disabled={createQuoteMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createQuoteMutation.isPending ? "Création…" : "Enregistrer le devis"}</Button></DialogFooter>
-                </DialogContent>
-              </Dialog>
-              <Dialog open={isInvoiceOpen} onOpenChange={setIsInvoiceOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => { setEditingInvoiceId(null); setInvoiceForm({ ...invoiceForm, invoiceNumber: nextInvoiceNumberQuery.data || invoiceForm.invoiceNumber }); }} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
-                    <Plus className="w-4 h-4 mr-2" /> Nouvelle facture
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-xl bg-white rounded-2xl">
-                  <DialogHeader>
-                    <DialogTitle>{editingInvoiceId ? "Modifier la facture brouillon" : "Créer une facture professionnelle"}</DialogTitle>
-                  </DialogHeader>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-slate-900">
-                    <div className="flex items-start justify-between border-b border-slate-200 pb-4">
-                      <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">AgencyManager Pro</p><p className="mt-1 text-xs text-slate-500">Gestion intégrée d’agence & ERP</p></div>
-                      <div className="text-right"><p className="text-2xl font-black tracking-tight">FACTURE</p><p className="text-sm font-semibold text-slate-600">N° {invoiceForm.invoiceNumber || "Nouveau document"}</p></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 border-b border-slate-200 py-4 text-xs">
-                      <div><p className="font-bold uppercase tracking-wider text-slate-400">Facturé à</p><p className="mt-1 font-semibold">Client #{invoiceForm.clientId}</p><p className="text-slate-500">Fiche client associée</p></div>
-                      <div className="text-right"><p className="font-bold uppercase tracking-wider text-slate-400">Dates</p><p className="mt-1">Émission : <span className="font-semibold">{invoiceForm.issueDate}</span></p><p>Échéance : <span className="font-semibold">{invoiceForm.dueDate}</span></p></div>
-                    </div>
-                    <div className="py-4"><div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><span>Désignation</span><span>Montant TTC</span></div><div className="flex items-start justify-between px-3 py-3 text-sm"><span className="max-w-[70%]">{invoiceForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="text-right font-bold"><span className="block">{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span>{showMGAEquivalent && <span className="block text-xs font-medium text-slate-500">{formatMGA(Number(invoiceForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span>}</span></div></div>
-                    <div className="flex justify-end border-t border-slate-200 pt-4"><div className="w-56 space-y-2 text-sm"><div className="flex justify-between text-slate-500"><span>Total TTC (EUR)</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div>{showMGAEquivalent && <div className="flex justify-between text-slate-500"><span>Équivalent (MGA)</span><span>{formatMGA(Number(invoiceForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span></div>}<div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Net à payer</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div></div>
-                    <p className="mt-4 text-[11px] text-slate-400">Conditions de règlement : se référer aux notes et à la date d’échéance indiquées.</p><div className="mt-3 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-500"><span className="font-bold uppercase tracking-wider text-slate-400">CGV</span><p className="mt-1 whitespace-pre-wrap">{invoiceForm.termsAndConditions || "CGV à compléter"}</p></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 py-4">
-                    <div className="space-y-2"><Label>Numéro de facture</Label><Input value={invoiceForm.invoiceNumber} disabled={Boolean(editingInvoiceId)} onChange={e => setInvoiceForm({...invoiceForm, invoiceNumber: e.target.value})} /></div>
-                    <div className="space-y-2"><Label>Référence client</Label><Input type="number" value={invoiceForm.clientId} onChange={e => setInvoiceForm({...invoiceForm, clientId: Number(e.target.value)})} /></div>
-                    <div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={invoiceForm.issueDate} onChange={e => setInvoiceForm({...invoiceForm, issueDate: e.target.value})} /></div>
-                    <div className="space-y-2"><Label>Date d’échéance</Label><Input type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm({...invoiceForm, dueDate: e.target.value})} /></div>
-                    <div className="space-y-2 col-span-2"><Label>Montant total TTC (€)</Label><Input value={invoiceForm.totalAmount} onChange={e => setInvoiceForm({...invoiceForm, totalAmount: e.target.value})} placeholder="2400.00" /></div>
-                    <div className="space-y-2 col-span-2"><Label>Libellé / lignes de prestation</Label><Textarea value={invoiceForm.itemsJson} onChange={e => setInvoiceForm({...invoiceForm, itemsJson: e.target.value})} placeholder="Conseil stratégique — 10 heures" /></div>
-                    <div className="space-y-2 col-span-2"><Label>Notes et conditions de règlement</Label><Textarea value={invoiceForm.notes} onChange={e => setInvoiceForm({...invoiceForm, notes: e.target.value})} placeholder="Paiement à 30 jours, merci pour votre confiance." /></div>
-                    <div className="space-y-2 col-span-2"><Label>Conditions générales de vente (CGV)</Label><Textarea value={invoiceForm.termsAndConditions} onChange={e => setInvoiceForm({...invoiceForm, termsAndConditions: e.target.value})} placeholder="Délais de paiement, pénalités, propriété intellectuelle…" /></div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={() => editingInvoiceId ? updateInvoiceDraftMutation.mutate({ id: editingInvoiceId, clientId: invoiceForm.clientId, quoteId: invoiceForm.quoteId, issueDate: invoiceForm.issueDate, dueDate: invoiceForm.dueDate, totalAmount: invoiceForm.totalAmount, itemsJson: invoiceForm.itemsJson, notes: invoiceForm.notes, termsAndConditions: invoiceForm.termsAndConditions }) : createInvoiceMutation.mutate(invoiceForm)} disabled={createInvoiceMutation.isPending || updateInvoiceDraftMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
-                      {editingInvoiceId ? "Enregistrer le brouillon" : "Créer la facture"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-              <Dialog open={invoiceCashConversion !== null} onOpenChange={open => { if (!open) setInvoiceCashConversion(null); }}>
-                <DialogContent className="max-w-md bg-white rounded-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Convertir la facture payée en entrée de caisse</DialogTitle>
-                    <DialogDescription>{invoiceCashConversion?.number} sera enregistré comme une recette comptable.</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Montant de référence : <strong>{Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2"><Label>Devise de l’entrée</Label><Select value={invoiceCashCurrency} onValueChange={value => setInvoiceCashCurrency(value as CurrencyCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div>
-                      <div className="space-y-2"><Label>Mode de paiement</Label><Input value={invoiceCashPaymentMethod} onChange={event => setInvoiceCashPaymentMethod(event.target.value)} placeholder="Virement, espèces…" /></div>
-                    </div>
-                    {invoiceCashCurrency === "MGA" && <div className="space-y-2"><Label>Taux appliqué (1 EUR = MGA)</Label><Input type="number" min="1" step="1" value={invoiceCashRate} onChange={event => setInvoiceCashRate(event.target.value)} /><p className="text-xs text-slate-500">Le montant en Ariary sera calculé puis le montant EUR de référence sera conservé.</p></div>}
-                    <p className="text-sm text-slate-600">Montant à enregistrer : <strong>{invoiceCashCurrency === "MGA" ? `${convertEurToMga(Number(invoiceCashConversion?.totalAmount || 0), Number(invoiceCashRate) || DEFAULT_EUR_TO_MGA).toLocaleString("fr-FR")} Ar` : Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></p>
-                  </div>
-                  <DialogFooter><Button onClick={() => { if (!invoiceCashConversion) return; if (invoiceCashCurrency === "MGA" && (!Number.isFinite(Number(invoiceCashRate)) || Number(invoiceCashRate) <= 0)) { toast.error("Indiquez un taux EUR/MGA positif."); return; } convertPaidInvoiceMutation.mutate({ invoiceId: invoiceCashConversion.id, currency: invoiceCashCurrency, exchangeRate: invoiceCashCurrency === "MGA" ? invoiceCashRate : "1", paymentMethod: invoiceCashPaymentMethod.trim() || "Virement" }); }} disabled={convertPaidInvoiceMutation.isPending} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl">{convertPaidInvoiceMutation.isPending ? "Conversion…" : "Ajouter à la caisse"}</Button></DialogFooter>
+                  <DialogFooter><Button onClick={() => editingCatalogId ? updateCatalogItemMutation.mutate({ id: editingCatalogId, ...catalogForm }) : createCatalogItemMutation.mutate(catalogForm)} disabled={createCatalogItemMutation.isPending || updateCatalogItemMutation.isPending} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-500">{createCatalogItemMutation.isPending || updateCatalogItemMutation.isPending ? "Enregistrement…" : "Enregistrer"}</Button></DialogFooter>
                 </DialogContent>
               </Dialog>
             </div>
+            <Card className="border-slate-200 bg-white shadow-sm"><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Libellé</TableHead><TableHead>Description client</TableHead><TableHead>Tarif</TableHead><TableHead>Mode</TableHead><TableHead>TVA</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{catalogItemsQuery.data?.map(item => <TableRow key={item.id} className={item.status === "inactif" ? "opacity-55" : ""}><TableCell><Badge variant="outline">{item.itemType}</Badge></TableCell><TableCell className="font-semibold text-slate-900">{item.label}</TableCell><TableCell className="max-w-xs text-xs text-slate-500">{item.description || "—"}</TableCell><TableCell className="font-semibold">{formatCurrency(Number(item.unitPrice), item.currency as CurrencyCode)} <span className="text-xs font-normal text-slate-500">/ {item.unit}</span></TableCell><TableCell>{item.pricingMode}</TableCell><TableCell>{Number(item.taxRate).toLocaleString("fr-FR")} %</TableCell><TableCell><Badge className={item.status === "actif" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}>{item.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => { setEditingCatalogId(item.id); setCatalogForm({ itemType: item.itemType, label: item.label, description: item.description || "", unit: item.unit, unitPrice: String(item.unitPrice), currency: item.currency as CurrencyCode, pricingMode: item.pricingMode, taxRate: String(item.taxRate), clientVisible: Boolean(item.clientVisible), status: item.status }); setIsCatalogOpen(true); }}><Pencil className="mr-1 h-3.5 w-3.5" /> Modifier</Button>{item.status === "actif" && <Button size="sm" variant="outline" onClick={() => archiveCatalogItemMutation.mutate({ id: item.id })} className="border-rose-200 text-rose-700 hover:bg-rose-50"><Trash2 className="mr-1 h-3.5 w-3.5" /> Archiver</Button>}</div></TableCell></TableRow>)}{(!catalogItemsQuery.data || catalogItemsQuery.data.length === 0) && <TableRow><TableCell colSpan={8} className="py-12 text-center text-slate-500">Le catalogue est vide. Ajoutez votre première prestation ou votre premier produit.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card>
+          </TabsContent>
 
-            <Card className="border-slate-200 shadow-sm bg-white">
-              <CardHeader>
-                <CardTitle>Factures & libellés commerciaux</CardTitle>
-                <CardDescription>Présentées dans un format clair, proche des usages de facture.net. Une facture en brouillon reste modifiable.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Échéance</TableHead><TableHead>Montant TTC</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {invoicesQuery.data?.map(inv => (
-                      <TableRow key={inv.id}>
-                        <TableCell><div className="flex flex-col"><span className="font-bold text-slate-900">Facture · {inv.invoiceNumber}</span><span className="text-xs text-slate-500">Document commercial AgencyManager Pro</span></div></TableCell>
-                        <TableCell>Client #{inv.clientId}</TableCell>
-                        <TableCell>{String(inv.issueDate).slice(0, 10)}</TableCell>
-                        <TableCell>{String(inv.dueDate).slice(0, 10)}</TableCell>
-                        <TableCell className="font-semibold">{Number(inv.totalAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
-                        <CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(inv.totalAmount)} rate={Number(eurToMgaRate) || 0} />
-                        <TableCell><Badge variant={inv.status === "brouillon" ? "secondary" : "outline"}>{inv.status}</Badge></TableCell>
-                        <TableCell className="text-right"><div className="flex flex-wrap justify-end gap-2">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "", termsAndConditions: inv.termsAndConditions || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : inv.status === "payée" ? <Button size="sm" variant="outline" onClick={() => { setInvoiceCashConversion({ id: inv.id, number: inv.invoiceNumber, totalAmount: String(inv.totalAmount) }); setInvoiceCashCurrency("MGA"); setInvoiceCashRate(String(DEFAULT_EUR_TO_MGA)); setInvoiceCashPaymentMethod("Virement"); }} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><WalletCards className="mr-1 h-3.5 w-3.5" /> Vers caisse</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}<Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("facture", { number: inv.invoiceNumber, clientId: inv.clientId, issueDate: inv.issueDate, dueDate: inv.dueDate, totalAmount: inv.totalAmount, itemsJson: inv.itemsJson, notes: inv.notes, termsAndConditions: inv.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button></div></TableCell>
-                      </TableRow>
-                    ))}
-                    {(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={getCommercialTableColumnCount(showMGAEquivalent)} className="text-center py-6 text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+          {/* FACTURATION ET DEVIS */}
+          <TabsContent value="billing" className="space-y-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Facturation & Devis</h2>
+                <p className="text-sm text-slate-500">Documents structurés avec catalogue, remises, TVA et profils France/Madagascar.</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500"><span className="font-semibold text-slate-700">1 EUR =</span><Input className="h-8 w-24 bg-white" inputMode="decimal" value={eurToMgaRate} onChange={event => setEurToMgaRate(event.target.value.replace(/[^0-9.]/g, ""))} aria-label="Taux euro vers ariary" /><span className="font-semibold text-slate-700">MGA</span><span>Taux de référence modifiable</span><span className="ml-2 h-4 w-px bg-slate-200" /><div className="flex items-center gap-2"><Switch checked={showMGAEquivalent} onCheckedChange={setShowMGAEquivalent} id="show-mga-equivalent" /><Label htmlFor="show-mga-equivalent" className="cursor-pointer font-semibold text-slate-700">Afficher l’équivalent</Label></div></div>
+              </div>
+              <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { setQuoteForm({ ...quoteForm, quoteNumber: nextQuoteNumberQuery.data || quoteForm.quoteNumber }); setIsQuoteOpen(true); }} className="rounded-xl border-indigo-200 text-indigo-700 hover:bg-indigo-50"><FileText className="mr-2 h-4 w-4" /> Créer un devis</Button><Button onClick={() => { setEditingInvoiceId(null); setInvoiceForm({ ...invoiceForm, invoiceNumber: nextInvoiceNumberQuery.data || invoiceForm.invoiceNumber }); setIsInvoiceOpen(true); }} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-500"><Plus className="mr-2 h-4 w-4" /> Nouvelle facture</Button></div>
+            </div>
 
-            <Card className="border-slate-200 shadow-sm bg-white">
-              <CardHeader><CardTitle>Devis commerciaux</CardTitle><CardDescription>Création, suivi de validité et téléchargement des propositions avec CGV.</CardDescription></CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Validité</TableHead><TableHead>Montant EUR</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {quotesQuery.data?.map(quote => (
-                      <TableRow key={quote.id}>
-                        <TableCell><div className="flex flex-col"><span className="font-bold text-slate-900">Devis · {quote.quoteNumber}</span><span className="text-xs text-slate-500">{quote.termsAndConditions ? "CGV renseignées" : "CGV à compléter"}</span></div></TableCell>
-                        <TableCell>Client #{quote.clientId}</TableCell>
-                        <TableCell>{String(quote.issueDate).slice(0, 10)}</TableCell>
-                        <TableCell>{String(quote.validUntil).slice(0, 10)}</TableCell>
-                        <TableCell className="font-semibold">{Number(quote.totalAmount).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</TableCell>
-                        <CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(quote.totalAmount)} rate={Number(eurToMgaRate) || 0} />
-                        <TableCell><Badge variant={quote.status === "brouillon" ? "secondary" : "outline"}>{quote.status}</Badge></TableCell>
-                        <TableCell className="text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("devis", { number: quote.quoteNumber, clientId: quote.clientId, issueDate: quote.issueDate, validUntil: quote.validUntil, totalAmount: quote.totalAmount, itemsJson: quote.itemsJson, notes: quote.notes, termsAndConditions: quote.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button><Button size="sm" variant="outline" disabled={quote.status === "facturé" || convertQuoteMutation.isPending} onClick={() => convertQuoteMutation.mutate({ quoteId: quote.id })} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><DollarSign className="mr-1 h-3.5 w-3.5" /> {quote.status === "facturé" ? "En compta" : "Passer en compta"}</Button></div></TableCell>
-                      </TableRow>
-                    ))}
-                    {(!quotesQuery.data || quotesQuery.data.length === 0) && <TableRow><TableCell colSpan={getCommercialTableColumnCount(showMGAEquivalent)} className="text-center py-6 text-slate-500">Aucun devis enregistré. Cliquez sur « Créer un devis » pour commencer.</TableCell></TableRow>}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <Dialog open={isQuoteOpen} onOpenChange={setIsQuoteOpen}>
+              <DialogContent className="max-w-4xl rounded-2xl bg-white"><DialogHeader><DialogTitle>Créer un devis professionnel</DialogTitle><DialogDescription>Ajoutez des lignes depuis le catalogue ou saisissez-les manuellement.</DialogDescription></DialogHeader>
+                <div className="grid gap-4 py-3 md:grid-cols-2"><div className="space-y-2"><Label>Numéro du devis</Label><Input value={quoteForm.quoteNumber} onChange={event => setQuoteForm({ ...quoteForm, quoteNumber: event.target.value })} /></div><div className="space-y-2"><Label>Client</Label><Select value={String(quoteForm.clientId)} onValueChange={value => setQuoteForm({ ...quoteForm, clientId: Number(value) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{clientsQuery.data?.map(client => <SelectItem key={client.id} value={String(client.id)}>{client.companyName}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={quoteForm.issueDate} onChange={event => setQuoteForm({ ...quoteForm, issueDate: event.target.value })} /></div><div className="space-y-2"><Label>Valable jusqu’au</Label><Input type="date" value={quoteForm.validUntil} onChange={event => setQuoteForm({ ...quoteForm, validUntil: event.target.value })} /></div><div className="space-y-2"><Label>Devise</Label><Select value={quoteForm.currency} onValueChange={value => { const currency = value as CurrencyCode; setQuoteForm({ ...quoteForm, currency }); setQuoteLines(lines => lines.map(line => ({ ...line, currency }))); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EUR">Euro (EUR)</SelectItem><SelectItem value="MGA">Ariary (MGA)</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Profil légal</Label><Select value={quoteForm.documentProfile} onValueChange={value => setQuoteForm({ ...quoteForm, documentProfile: value as "fr" | "mg" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fr">France</SelectItem><SelectItem value="mg">Madagascar</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Remise globale</Label><div className="flex gap-2"><Select value={quoteForm.discountType} onValueChange={value => setQuoteForm({ ...quoteForm, discountType: value as "none" | "percent" | "fixed" })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Aucune</SelectItem><SelectItem value="percent">%</SelectItem><SelectItem value="fixed">Montant</SelectItem></SelectContent></Select><Input inputMode="decimal" value={quoteForm.discountValue} onChange={event => setQuoteForm({ ...quoteForm, discountValue: event.target.value })} disabled={quoteForm.discountType === "none"} /></div></div><div className="space-y-2"><Label>TVA globale (%)</Label><Input inputMode="decimal" value={quoteForm.taxRate} onChange={event => setQuoteForm({ ...quoteForm, taxRate: event.target.value })} /></div></div>
+                <div className="space-y-3"><div className="flex items-center justify-between"><Label className="font-semibold">Lignes du devis</Label><Button type="button" size="sm" variant="outline" onClick={() => setQuoteLines(lines => [...lines, emptyBillingLine(quoteForm.currency)])}><Plus className="mr-1 h-3.5 w-3.5" /> Ligne</Button></div>{quoteLines.map((line, index) => <div key={`quote-line-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="grid gap-2 md:grid-cols-[1.3fr_0.55fr_0.65fr_0.75fr_auto]"><Select value={line.catalogItemId ? String(line.catalogItemId) : `manual-quote-${index}`} onValueChange={value => { const item = catalogItemsQuery.data?.find(candidate => String(candidate.id) === value); if (!item) return; setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, catalogItemId: item.id, label: item.label, description: item.clientVisible ? item.description || "" : "", unit: item.unit, unitPrice: String(item.unitPrice), currency: item.currency as CurrencyCode, taxRate: String(item.taxRate) } : current)); }}><SelectTrigger className="bg-white"><SelectValue placeholder="Catalogue" /></SelectTrigger><SelectContent><SelectItem value={`manual-quote-${index}`}>Saisie manuelle</SelectItem>{catalogItemsQuery.data?.filter(item => item.status === "actif" && item.currency === quoteForm.currency).map(item => <SelectItem key={item.id} value={String(item.id)}>{item.label} · {formatCurrency(Number(item.unitPrice), item.currency as CurrencyCode)}</SelectItem>)}</SelectContent></Select><Input value={line.label} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, label: event.target.value, catalogItemId: undefined } : current))} placeholder="Désignation" className="bg-white" /><Input inputMode="decimal" value={line.quantity} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, quantity: event.target.value } : current))} placeholder="Qté" className="bg-white" /><Input inputMode="decimal" value={line.unitPrice} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, unitPrice: event.target.value } : current))} placeholder="Prix HT" className="bg-white" />{quoteLines.length > 1 && <Button type="button" size="icon" variant="outline" onClick={() => setQuoteLines(lines => lines.filter((_, row) => row !== index))}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div><div className="mt-2 grid gap-2 md:grid-cols-[1fr_0.7fr_0.8fr]"><Input value={line.description} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, description: event.target.value } : current))} placeholder="Description client" className="bg-white" /><Input inputMode="decimal" value={line.taxRate} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, taxRate: event.target.value } : current))} placeholder="TVA ligne %" className="bg-white" /><div className="flex gap-2"><Select value={line.discountType} onValueChange={value => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, discountType: value as BillingLine["discountType"] } : current))}><SelectTrigger className="bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sans remise</SelectItem><SelectItem value="percent">Remise %</SelectItem><SelectItem value="fixed">Remise montant</SelectItem></SelectContent></Select><Input inputMode="decimal" value={line.discountValue} onChange={event => setQuoteLines(lines => lines.map((current, row) => row === index ? { ...current, discountValue: event.target.value } : current))} disabled={line.discountType === "none"} className="bg-white" /></div></div></div>)}</div>
+                <div className="mt-4 flex justify-end"><div className="w-72 space-y-1 text-right text-sm"><div className="flex justify-between"><span className="text-slate-500">Sous-total HT</span><span>{formatCurrency(quoteTotals.subtotal, quoteForm.currency)}</span></div><div className="flex justify-between text-rose-600"><span>Remise</span><span>- {formatCurrency(quoteTotals.discount, quoteForm.currency)}</span></div><div className="flex justify-between"><span className="text-slate-500">TVA</span><span>{formatCurrency(quoteTotals.tax, quoteForm.currency)}</span></div><div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Total TTC</span><span>{formatCurrency(quoteTotals.total, quoteForm.currency)}</span></div></div></div><div className="grid gap-4 py-4"><div className="space-y-2"><Label>Notes</Label><Textarea value={quoteForm.notes} onChange={event => setQuoteForm({ ...quoteForm, notes: event.target.value })} /></div><div className="space-y-2"><Label>CGV</Label><Textarea value={quoteForm.termsAndConditions} onChange={event => setQuoteForm({ ...quoteForm, termsAndConditions: event.target.value })} placeholder="Validité, paiement, pénalités, propriété intellectuelle…" /></div></div><DialogFooter><Button onClick={() => createQuoteMutation.mutate({ ...quoteForm, itemsJson: serializeBillingLines(quoteLines) })} disabled={createQuoteMutation.isPending} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-500">{createQuoteMutation.isPending ? "Création…" : "Enregistrer le devis"}</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={isInvoiceOpen} onOpenChange={setIsInvoiceOpen}><DialogContent className="max-w-4xl rounded-2xl bg-white"><DialogHeader><DialogTitle>{editingInvoiceId ? "Modifier la facture brouillon" : "Créer une facture professionnelle"}</DialogTitle><DialogDescription>Les totaux sont recalculés depuis les lignes avant enregistrement.</DialogDescription></DialogHeader><div className="grid gap-4 py-3 md:grid-cols-2"><div className="space-y-2"><Label>Numéro de facture</Label><Input value={invoiceForm.invoiceNumber} disabled={Boolean(editingInvoiceId)} onChange={event => setInvoiceForm({ ...invoiceForm, invoiceNumber: event.target.value })} /></div><div className="space-y-2"><Label>Client</Label><Select value={String(invoiceForm.clientId)} onValueChange={value => setInvoiceForm({ ...invoiceForm, clientId: Number(value) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{clientsQuery.data?.map(client => <SelectItem key={client.id} value={String(client.id)}>{client.companyName}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={invoiceForm.issueDate} onChange={event => setInvoiceForm({ ...invoiceForm, issueDate: event.target.value })} /></div><div className="space-y-2"><Label>Date d’échéance</Label><Input type="date" value={invoiceForm.dueDate} onChange={event => setInvoiceForm({ ...invoiceForm, dueDate: event.target.value })} /></div><div className="space-y-2"><Label>Devise</Label><Select value={invoiceForm.currency} onValueChange={value => { const currency = value as CurrencyCode; setInvoiceForm({ ...invoiceForm, currency }); setInvoiceLines(lines => lines.map(line => ({ ...line, currency }))); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EUR">Euro (EUR)</SelectItem><SelectItem value="MGA">Ariary (MGA)</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Profil légal</Label><Select value={invoiceForm.documentProfile} onValueChange={value => setInvoiceForm({ ...invoiceForm, documentProfile: value as "fr" | "mg" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fr">France</SelectItem><SelectItem value="mg">Madagascar</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Remise globale</Label><div className="flex gap-2"><Select value={invoiceForm.discountType} onValueChange={value => setInvoiceForm({ ...invoiceForm, discountType: value as "none" | "percent" | "fixed" })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Aucune</SelectItem><SelectItem value="percent">%</SelectItem><SelectItem value="fixed">Montant</SelectItem></SelectContent></Select><Input inputMode="decimal" value={invoiceForm.discountValue} onChange={event => setInvoiceForm({ ...invoiceForm, discountValue: event.target.value })} disabled={invoiceForm.discountType === "none"} /></div></div><div className="space-y-2"><Label>TVA globale (%)</Label><Input inputMode="decimal" value={invoiceForm.taxRate} onChange={event => setInvoiceForm({ ...invoiceForm, taxRate: event.target.value })} /></div></div><div className="space-y-3"><div className="flex items-center justify-between"><Label className="font-semibold">Lignes de facture</Label><Button type="button" size="sm" variant="outline" onClick={() => setInvoiceLines(lines => [...lines, emptyBillingLine(invoiceForm.currency)])}><Plus className="mr-1 h-3.5 w-3.5" /> Ligne</Button></div>{invoiceLines.map((line, index) => <div key={`invoice-line-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="grid gap-2 md:grid-cols-[1.3fr_0.55fr_0.65fr_0.75fr_auto]"><Select value={line.catalogItemId ? String(line.catalogItemId) : `manual-invoice-${index}`} onValueChange={value => { const item = catalogItemsQuery.data?.find(candidate => String(candidate.id) === value); if (!item) return; setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, catalogItemId: item.id, label: item.label, description: item.clientVisible ? item.description || "" : "", unit: item.unit, unitPrice: String(item.unitPrice), currency: item.currency as CurrencyCode, taxRate: String(item.taxRate) } : current)); }}><SelectTrigger className="bg-white"><SelectValue placeholder="Catalogue" /></SelectTrigger><SelectContent><SelectItem value={`manual-invoice-${index}`}>Saisie manuelle</SelectItem>{catalogItemsQuery.data?.filter(item => item.status === "actif" && item.currency === invoiceForm.currency).map(item => <SelectItem key={item.id} value={String(item.id)}>{item.label} · {formatCurrency(Number(item.unitPrice), item.currency as CurrencyCode)}</SelectItem>)}</SelectContent></Select><Input value={line.label} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, label: event.target.value, catalogItemId: undefined } : current))} placeholder="Désignation" className="bg-white" /><Input inputMode="decimal" value={line.quantity} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, quantity: event.target.value } : current))} placeholder="Qté" className="bg-white" /><Input inputMode="decimal" value={line.unitPrice} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, unitPrice: event.target.value } : current))} placeholder="Prix HT" className="bg-white" />{invoiceLines.length > 1 && <Button type="button" size="icon" variant="outline" onClick={() => setInvoiceLines(lines => lines.filter((_, row) => row !== index))}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div><div className="mt-2 grid gap-2 md:grid-cols-[1fr_0.7fr_0.8fr]"><Input value={line.description} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, description: event.target.value } : current))} placeholder="Description client" className="bg-white" /><Input inputMode="decimal" value={line.taxRate} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, taxRate: event.target.value } : current))} placeholder="TVA ligne %" className="bg-white" /><div className="flex gap-2"><Select value={line.discountType} onValueChange={value => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, discountType: value as BillingLine["discountType"] } : current))}><SelectTrigger className="bg-white"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sans remise</SelectItem><SelectItem value="percent">Remise %</SelectItem><SelectItem value="fixed">Remise montant</SelectItem></SelectContent></Select><Input inputMode="decimal" value={line.discountValue} onChange={event => setInvoiceLines(lines => lines.map((current, row) => row === index ? { ...current, discountValue: event.target.value } : current))} disabled={line.discountType === "none"} className="bg-white" /></div></div></div>)}</div><div className="mt-4 flex justify-end"><div className="w-72 space-y-1 text-right text-sm"><div className="flex justify-between"><span className="text-slate-500">Sous-total HT</span><span>{formatCurrency(invoiceTotals.subtotal, invoiceForm.currency)}</span></div><div className="flex justify-between text-rose-600"><span>Remise</span><span>- {formatCurrency(invoiceTotals.discount, invoiceForm.currency)}</span></div><div className="flex justify-between"><span className="text-slate-500">TVA</span><span>{formatCurrency(invoiceTotals.tax, invoiceForm.currency)}</span></div><div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Total TTC</span><span>{formatCurrency(invoiceTotals.total, invoiceForm.currency)}</span></div></div></div><div className="grid gap-4 py-4"><div className="space-y-2"><Label>Notes et conditions de règlement</Label><Textarea value={invoiceForm.notes} onChange={event => setInvoiceForm({ ...invoiceForm, notes: event.target.value })} /></div><div className="space-y-2"><Label>CGV</Label><Textarea value={invoiceForm.termsAndConditions} onChange={event => setInvoiceForm({ ...invoiceForm, termsAndConditions: event.target.value })} placeholder="Délais de paiement, pénalités, indemnité forfaitaire, propriété intellectuelle…" /></div></div><DialogFooter><Button onClick={() => editingInvoiceId ? updateInvoiceDraftMutation.mutate({ id: editingInvoiceId, invoiceNumber: invoiceForm.invoiceNumber, clientId: invoiceForm.clientId, quoteId: invoiceForm.quoteId, issueDate: invoiceForm.issueDate, dueDate: invoiceForm.dueDate, itemsJson: serializeBillingLines(invoiceLines), currency: invoiceForm.currency, documentProfile: invoiceForm.documentProfile, discountType: invoiceForm.discountType, discountValue: invoiceForm.discountValue, taxRate: invoiceForm.taxRate, notes: invoiceForm.notes, termsAndConditions: invoiceForm.termsAndConditions }) : createInvoiceMutation.mutate({ ...invoiceForm, itemsJson: serializeBillingLines(invoiceLines) })} disabled={createInvoiceMutation.isPending || updateInvoiceDraftMutation.isPending} className="rounded-xl bg-indigo-600 text-white hover:bg-indigo-500">{editingInvoiceId ? "Enregistrer le brouillon" : "Créer la facture"}</Button></DialogFooter></DialogContent></Dialog>
+
+            <Dialog open={invoiceCashConversion !== null} onOpenChange={open => { if (!open) setInvoiceCashConversion(null); }}><DialogContent className="max-w-md rounded-2xl bg-white"><DialogHeader><DialogTitle>Convertir la facture payée en entrée de caisse</DialogTitle><DialogDescription>{invoiceCashConversion?.number} sera enregistré comme une recette comptable.</DialogDescription></DialogHeader><div className="space-y-4 py-4"><div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Montant de référence : <strong>{Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label>Devise de l’entrée</Label><Select value={invoiceCashCurrency} onValueChange={value => setInvoiceCashCurrency(value as CurrencyCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Mode de paiement</Label><Input value={invoiceCashPaymentMethod} onChange={event => setInvoiceCashPaymentMethod(event.target.value)} placeholder="Virement, espèces…" /></div></div>{invoiceCashCurrency === "MGA" && <div className="space-y-2"><Label>Taux appliqué (1 EUR = MGA)</Label><Input type="number" min="1" step="1" value={invoiceCashRate} onChange={event => setInvoiceCashRate(event.target.value)} /></div>}<p className="text-sm text-slate-600">Montant à enregistrer : <strong>{invoiceCashCurrency === "MGA" ? `${convertEurToMga(Number(invoiceCashConversion?.totalAmount || 0), Number(invoiceCashRate) || DEFAULT_EUR_TO_MGA).toLocaleString("fr-FR")} Ar` : Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></p></div><DialogFooter><Button onClick={() => { if (!invoiceCashConversion) return; if (invoiceCashCurrency === "MGA" && (!Number.isFinite(Number(invoiceCashRate)) || Number(invoiceCashRate) <= 0)) { toast.error("Indiquez un taux EUR/MGA positif."); return; } convertPaidInvoiceMutation.mutate({ invoiceId: invoiceCashConversion.id, currency: invoiceCashCurrency, exchangeRate: invoiceCashCurrency === "MGA" ? invoiceCashRate : "1", paymentMethod: invoiceCashPaymentMethod.trim() || "Virement" }); }} disabled={convertPaidInvoiceMutation.isPending} className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-500">{convertPaidInvoiceMutation.isPending ? "Conversion…" : "Ajouter à la caisse"}</Button></DialogFooter></DialogContent></Dialog>
+
+            <Card className="border-slate-200 bg-white shadow-sm"><CardHeader><CardTitle>Factures structurées</CardTitle><CardDescription>Les totaux affichent le montant HT, la remise, la TVA et le TTC. Les brouillons restent modifiables.</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Client</TableHead><TableHead>Dates</TableHead><TableHead>HT</TableHead><TableHead>Remise</TableHead><TableHead>TVA</TableHead><TableHead>TTC</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Profil</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{invoicesQuery.data?.map(inv => <TableRow key={inv.id}><TableCell><span className="font-bold text-slate-900">Facture · {inv.invoiceNumber}</span></TableCell><TableCell>Client #{inv.clientId}</TableCell><TableCell className="text-xs">{String(inv.issueDate).slice(0, 10)}<span className="block text-slate-500">Éch. {String(inv.dueDate).slice(0, 10)}</span></TableCell><TableCell>{formatCurrency(Number(inv.subtotalAmount || 0), inv.currency as CurrencyCode)}</TableCell><TableCell className="text-rose-700">- {formatCurrency(Number(inv.discountValue || 0), inv.currency as CurrencyCode)}</TableCell><TableCell>{formatCurrency(Number(inv.taxAmount || 0), inv.currency as CurrencyCode)}</TableCell><TableCell className="font-semibold">{formatCurrency(Number(inv.totalAmount || 0), inv.currency as CurrencyCode)}</TableCell><CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(inv.totalAmount || 0)} rate={Number(eurToMgaRate) || DEFAULT_EUR_TO_MGA} /><TableCell><Badge variant="outline">{inv.documentProfile === "mg" ? "Madagascar" : "France"}</Badge></TableCell><TableCell><Badge variant={inv.status === "brouillon" ? "secondary" : "outline"}>{inv.status}</Badge></TableCell><TableCell className="text-right"><div className="flex flex-wrap justify-end gap-2">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), currency: (inv.currency as CurrencyCode) || "EUR", documentProfile: inv.documentProfile === "mg" ? "mg" : "fr", discountType: inv.discountType === "percent" || inv.discountType === "fixed" ? inv.discountType : "none", discountValue: String(inv.discountValue || 0), taxRate: String(inv.taxRate || 0), notes: inv.notes || "", termsAndConditions: inv.termsAndConditions || "" }); setInvoiceLines(parseBillingLines(inv.itemsJson, (inv.currency as CurrencyCode) || "EUR")); setIsInvoiceOpen(true); }}>Modifier</Button> : inv.status === "payée" ? <Button size="sm" variant="outline" onClick={() => { setInvoiceCashConversion({ id: inv.id, number: inv.invoiceNumber, totalAmount: String(inv.totalAmount) }); setInvoiceCashCurrency("MGA"); setInvoiceCashRate(String(DEFAULT_EUR_TO_MGA)); setInvoiceCashPaymentMethod("Virement"); }} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><WalletCards className="mr-1 h-3.5 w-3.5" /> Vers caisse</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}<Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("facture", { number: inv.invoiceNumber, clientId: inv.clientId, issueDate: inv.issueDate, dueDate: inv.dueDate, totalAmount: inv.totalAmount, itemsJson: inv.itemsJson, notes: inv.notes, termsAndConditions: inv.termsAndConditions, currency: inv.currency as CurrencyCode, documentProfile: inv.documentProfile === "mg" ? "mg" : "fr", subtotalAmount: inv.subtotalAmount, discountType: inv.discountType, discountValue: inv.discountValue, taxRate: inv.taxRate, taxAmount: inv.taxAmount })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button></div></TableCell></TableRow>)}{(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={showMGAEquivalent ? 11 : 10} className="py-8 text-center text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card>
+            <Card className="border-slate-200 bg-white shadow-sm"><CardHeader><CardTitle>Devis commerciaux</CardTitle><CardDescription>Devis structurés avec catalogue, remises, TVA, devise et profil de conformité.</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Client</TableHead><TableHead>Dates</TableHead><TableHead>HT</TableHead><TableHead>Remise</TableHead><TableHead>TVA</TableHead><TableHead>TTC</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Profil</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{quotesQuery.data?.map(quote => <TableRow key={quote.id}><TableCell><span className="font-bold text-slate-900">Devis · {quote.quoteNumber}</span></TableCell><TableCell>Client #{quote.clientId}</TableCell><TableCell className="text-xs">{String(quote.issueDate).slice(0, 10)}<span className="block text-slate-500">Val. {String(quote.validUntil).slice(0, 10)}</span></TableCell><TableCell>{formatCurrency(Number(quote.subtotalAmount || 0), quote.currency as CurrencyCode)}</TableCell><TableCell className="text-rose-700">- {formatCurrency(Number(quote.discountValue || 0), quote.currency as CurrencyCode)}</TableCell><TableCell>{formatCurrency(Number(quote.taxAmount || 0), quote.currency as CurrencyCode)}</TableCell><TableCell className="font-semibold">{formatCurrency(Number(quote.totalAmount || 0), quote.currency as CurrencyCode)}</TableCell><CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(quote.totalAmount || 0)} rate={Number(eurToMgaRate) || DEFAULT_EUR_TO_MGA} /><TableCell><Badge variant="outline">{quote.documentProfile === "mg" ? "Madagascar" : "France"}</Badge></TableCell><TableCell><Badge variant={quote.status === "brouillon" ? "secondary" : "outline"}>{quote.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("devis", { number: quote.quoteNumber, clientId: quote.clientId, issueDate: quote.issueDate, validUntil: quote.validUntil, totalAmount: quote.totalAmount, itemsJson: quote.itemsJson, notes: quote.notes, termsAndConditions: quote.termsAndConditions, currency: quote.currency as CurrencyCode, documentProfile: quote.documentProfile === "mg" ? "mg" : "fr", subtotalAmount: quote.subtotalAmount, discountType: quote.discountType, discountValue: quote.discountValue, taxRate: quote.taxRate, taxAmount: quote.taxAmount })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button><Button size="sm" variant="outline" disabled={quote.status === "facturé" || convertQuoteMutation.isPending} onClick={() => convertQuoteMutation.mutate({ quoteId: quote.id })} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><DollarSign className="mr-1 h-3.5 w-3.5" /> {quote.status === "facturé" ? "En compta" : "Passer en compta"}</Button></div></TableCell></TableRow>)}{(!quotesQuery.data || quotesQuery.data.length === 0) && <TableRow><TableCell colSpan={showMGAEquivalent ? 11 : 10} className="py-8 text-center text-slate-500">Aucun devis enregistré. Cliquez sur « Créer un devis » pour commencer.</TableCell></TableRow>}</TableBody></Table></div></CardContent></Card>
           </TabsContent>
 
           {/* STATISTIQUES DYNAMIQUES */}

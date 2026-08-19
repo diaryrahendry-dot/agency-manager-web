@@ -170,6 +170,14 @@ export const quotes = mysqlTable("quotes", {
   issueDate: date("issueDate").notNull(),
   validUntil: date("validUntil").notNull(),
   totalAmount: decimal("totalAmount", { precision: 12, scale: 2 }).notNull(),
+  subtotalAmount: decimal("subtotalAmount", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  discountType: mysqlEnum("discountType", ["none", "percent", "fixed"]).default("none").notNull(),
+  discountValue: decimal("discountValue", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  taxRate: decimal("taxRate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  taxAmount: decimal("taxAmount", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("EUR").notNull(),
+  documentProfile: mysqlEnum("documentProfile", ["fr", "mg"]).default("fr").notNull(),
+  complianceJson: text("complianceJson"),
   status: mysqlEnum("status", ["brouillon", "envoyé", "accepté", "refusé", "facturé"]).default("brouillon").notNull(),
   itemsJson: text("itemsJson").notNull(), // JSON des lignes de devis
   notes: text("notes"),
@@ -185,6 +193,14 @@ export const invoices = mysqlTable("invoices", {
   issueDate: date("issueDate").notNull(),
   dueDate: date("dueDate").notNull(),
   totalAmount: decimal("totalAmount", { precision: 12, scale: 2 }).notNull(),
+  subtotalAmount: decimal("subtotalAmount", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  discountType: mysqlEnum("discountType", ["none", "percent", "fixed"]).default("none").notNull(),
+  discountValue: decimal("discountValue", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  taxRate: decimal("taxRate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  taxAmount: decimal("taxAmount", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("EUR").notNull(),
+  documentProfile: mysqlEnum("documentProfile", ["fr", "mg"]).default("fr").notNull(),
+  complianceJson: text("complianceJson"),
   status: mysqlEnum("status", ["brouillon", "émise", "payée", "en_retard", "annulée"]).default("brouillon").notNull(),
   itemsJson: text("itemsJson").notNull(), // JSON des lignes de facture
   notes: text("notes"),
@@ -205,6 +221,24 @@ export type ClientInteraction = typeof clientInteractions.$inferSelect;
 export type DocumentRecord = typeof documents.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
+
+// Catalogue de produits et prestations réutilisables dans les devis et factures
+export const catalogItems = mysqlTable("catalog_items", {
+  id: int("id").autoincrement().primaryKey(),
+  itemType: mysqlEnum("itemType", ["produit", "prestation"]).default("prestation").notNull(),
+  label: varchar("label", { length: 200 }).notNull(),
+  description: text("description"),
+  unit: varchar("unit", { length: 50 }).default("unité").notNull(),
+  unitPrice: decimal("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("MGA").notNull(),
+  pricingMode: mysqlEnum("pricingMode", ["ponctuel", "récurrent", "mensuel"]).default("ponctuel").notNull(),
+  taxRate: decimal("taxRate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  clientVisible: int("clientVisible").default(1).notNull(),
+  status: mysqlEnum("status", ["actif", "inactif"]).default("actif").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogItem = typeof catalogItems.$inferSelect;
 
 // 6. Tableur Statistiques Dynamiques & Budget Planner
 export const dynamicStats = mysqlTable("dynamic_stats", {

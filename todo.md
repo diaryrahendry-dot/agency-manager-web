@@ -109,3 +109,8 @@
 - [x] Séparer les statistiques en deux sections distinctes : Statistiques RH (dépenses et sorties journalières/mensuelles, par équipe/agent) et Statistiques CA (factures par période, client, service et statut : encaissé, en retard, annulé)
 - [x] Mettre à jour les procédures tRPC et l’interface de navigation pour les deux rubriques spécialisées
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Créer la section catalogue de produits et prestations avec fiche produit, libellé, tarif, choix récurrent ou mensuel, devises au choix, description client et bouton de modification
+- [x] Intégrer le catalogue dans la création des devis et factures
+- [x] Mettre à jour la section devis et factures pour respecter les normes françaises et malgaches (mentions obligatoires, remises par produit ou sur le total, gestion de la TVA)
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final

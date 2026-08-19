@@ -50,6 +50,13 @@
       "when": 1787137979785,
       "tag": "0006_violet_skreet",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1787140868367,
+      "tag": "0007_chemical_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }
