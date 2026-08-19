@@ -226,6 +226,8 @@ export default function Home() {
   const projectsQuery = trpc.projects.mine.useQuery(undefined, { enabled: isAuthenticated });
   const providerEnvironmentsQuery = trpc.provider.listClientEnvironments.useQuery(undefined, { enabled: isAuthenticated && isAdmin });
   const [isProviderClientOpen, setIsProviderClientOpen] = useState(false);
+  const [isTrainingModalOpen, setIsTrainingModalOpen] = useState(false);
+  const [activeTrainingModule, setActiveTrainingModule] = useState<"rh" | "compta" | "crm" | "facturation" | "parametres">("rh");
   const [providerClientForm, setProviderClientForm] = useState({
     agencyName: "",
     clientContactName: "",
@@ -1221,9 +1223,12 @@ export default function Home() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-slate-600">Progression :</span>
-                    <span className="rounded-full bg-teal-600 px-3 py-1 text-xs font-black text-white shadow-sm">
+                    <span className="rounded-full bg-teal-600 px-3 py-1 text-xs font-black text-white shadow-sm mr-2">
                       {[isAdmin, (agentsQuery.data?.length || 0) > 0, (clientsQuery.data?.length || 0) > 0, (invoicesQuery.data?.length || 0) > 0].filter(Boolean).length} / 4 étapes
                     </span>
+                    <Button size="sm" className="bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl shadow-sm hover:brightness-105" onClick={() => setIsTrainingModalOpen(true)}>
+                      📚 Rubrique Formation
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -2713,6 +2718,142 @@ export default function Home() {
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{adminProjectsQuery.data?.map(project => { const template = getProjectTemplate(project.managementTemplate as ProjectTemplateKey); return <div key={project.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-900">{project.name}</p><p className="text-xs text-slate-500">/{project.slug}</p></div><Badge variant={project.status === "actif" ? "default" : "secondary"}>{project.status}</Badge></div><div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{template.label}</Badge><Badge variant="outline">{project.defaultCurrency}</Badge><Badge variant="outline">{project.jurisdiction === "mg" ? "MG" : "FR"}</Badge></div><p className="mt-3 line-clamp-2 text-sm text-slate-500">{project.description || template.shortDescription}</p><Button variant="outline" size="sm" className="mt-4" disabled={updateAdminProjectStatusMutation.isPending} onClick={() => updateAdminProjectStatusMutation.mutate({ projectId: project.id, status: project.status === "actif" ? "archive" : "actif" })}>{project.status === "actif" ? "Archiver" : "Réactiver"}</Button></div>; })}{(!adminProjectsQuery.data || adminProjectsQuery.data.length === 0) && <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 md:col-span-2 lg:col-span-3">Aucun projet créé. Cliquez sur « Nouveau projet » pour initialiser votre premier espace.</div>}</div>
               </CardContent>
             </Card>}
+
+            {/* Modale de Formation Interactive */}
+            <Dialog open={isTrainingModalOpen} onOpenChange={setIsTrainingModalOpen}>
+              <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+                <DialogHeader>
+                  <div className="flex items-center gap-3">
+                    <span className="p-3 bg-amber-100 text-amber-700 rounded-2xl text-xl">📚</span>
+                    <div>
+                      <DialogTitle className="text-2xl font-bold text-slate-900">Centre de Formation & Tutoriels</DialogTitle>
+                      <DialogDescription>Guides interactifs et bonnes pratiques pour maîtriser chaque rubrique d’AgencyManager Pro.</DialogDescription>
+                    </div>
+                  </div>
+                </DialogHeader>
+
+                <div className="space-y-6 py-4">
+                  <div className="flex flex-wrap gap-2 border-b pb-3">
+                    <Button size="sm" variant={activeTrainingModule === "rh" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "rh" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("rh")}>
+                      👥 RH & Pointages
+                    </Button>
+                    <Button size="sm" variant={activeTrainingModule === "compta" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "compta" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("compta")}>
+                      💰 Comptabilité
+                    </Button>
+                    <Button size="sm" variant={activeTrainingModule === "crm" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "crm" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("crm")}>
+                      📊 CRM & Leads
+                    </Button>
+                    <Button size="sm" variant={activeTrainingModule === "facturation" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "facturation" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("facturation")}>
+                      📄 Facturation & Devis
+                    </Button>
+                    <Button size="sm" variant={activeTrainingModule === "parametres" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "parametres" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("parametres")}>
+                      ⚙️ Rôles & Projets
+                    </Button>
+                  </div>
+
+                  {activeTrainingModule === "rh" && (
+                    <div className="space-y-4 text-sm text-slate-700">
+                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique RH & Agents</h3>
+                      <p>
+                        La gestion des ressources humaines repose sur un suivi précis en journées de travail (1 journée standard = 8 heures). Chaque agent dispose d'une fiche complète intégrant son contrat, ses documents officiels et son ancienneté.
+                      </p>
+                      <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4 space-y-2">
+                        <p className="font-semibold text-teal-900">Points clés à retenir :</p>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-teal-800">
+                          <li><strong>Pointages :</strong> Enregistrez les heures travaillées. Une fois validés par le collaborateur, les pointages sont verrouillés pour garantir l'intégrité de la paie.</li>
+                          <li><strong>Congés et soldes :</strong> Le solde de congés est mis à jour dynamiquement et se décompte à la fin de la période active.</li>
+                          <li><strong>Avances sur salaire :</strong> Les demandes d'avance peuvent être converties en sorties de caisse comptables depuis le planning superviseur en un clic.</li>
+                        </ul>
+                      </div>
+                      <Button className="bg-teal-600 text-white hover:bg-teal-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("hr"); }}>
+                        Accéder à la rubrique RH <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeTrainingModule === "compta" && (
+                    <div className="space-y-4 text-sm text-slate-700">
+                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Comptabilité</h3>
+                      <p>
+                        Le module de comptabilité centralise toutes les entrées et sorties de trésorerie en devises doubles (EUR et MGA) avec un taux de change paramétrable.
+                      </p>
+                      <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-2">
+                        <p className="font-semibold text-sky-900">Points clés à retenir :</p>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-sky-800">
+                          <li><strong>Mouvements :</strong> Enregistrez chaque entrée ou sortie de caisse avec sa catégorie, son mode de paiement et une note interne si nécessaire.</li>
+                          <li><strong>Conversions automatiques :</strong> Les factures payées et les avances validées peuvent être converties instantanément en écritures comptables.</li>
+                          <li><strong>Reporting et Exports :</strong> Retrouvez les rapports mensuels automatiques et exportez vos données en Excel ou CSV en un clic.</li>
+                        </ul>
+                      </div>
+                      <Button className="bg-sky-600 text-white hover:bg-sky-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("accounting"); }}>
+                        Accéder à la comptabilité <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeTrainingModule === "crm" && (
+                    <div className="space-y-4 text-sm text-slate-700">
+                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique CRM & Leads</h3>
+                      <p>
+                        Le CRM combine la souplesse d'un tableau Kanban et d'un tableur dynamique pour qualifier vos opportunités commerciales, planifier les relances et suivre le montant attendu de chaque vente.
+                      </p>
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 space-y-2">
+                        <p className="font-semibold text-amber-900">Points clés à retenir :</p>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-amber-800">
+                          <li><strong>Glisser-déposer / Statuts :</strong> Faites progresser vos prospects du premier contact jusqu'à la signature du contrat.</li>
+                          <li><strong>Conversion en client :</strong> Dès qu'un contrat est confirmé, transformez le lead en client pour basculer automatiquement ses données dans la base clients.</li>
+                        </ul>
+                      </div>
+                      <Button className="bg-amber-600 text-white hover:bg-amber-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("crm"); }}>
+                        Accéder au CRM <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeTrainingModule === "facturation" && (
+                    <div className="space-y-4 text-sm text-slate-700">
+                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Devis & Facturation</h3>
+                      <p>
+                        Émettez des devis et factures professionnels respectant les normes françaises et malgaches, enrichis par un catalogue de prestations unifié et des calculs automatiques de TVA et de remises.
+                      </p>
+                      <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 space-y-2">
+                        <p className="font-semibold text-orange-900">Points clés à retenir :</p>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-orange-800">
+                          <li><strong>Catalogue intégré :</strong> Sélectionnez directement vos prestations dans le catalogue lors de la création d'un document.</li>
+                          <li><strong>États et Brouillons :</strong> Modifiez les documents en statut brouillon, confirmez-les ou annulez-les en toute sécurité.</li>
+                        </ul>
+                      </div>
+                      <Button className="bg-orange-600 text-white hover:bg-orange-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("billing"); }}>
+                        Accéder à la facturation <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeTrainingModule === "parametres" && (
+                    <div className="space-y-4 text-sm text-slate-700">
+                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Paramètres & Rôles</h3>
+                      <p>
+                        Gérez les accès de votre équipe avec trois niveaux de rôles (Collaborateur, Superviseur, Admin) et configurez les permissions détaillées pour chaque profil.
+                      </p>
+                      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2">
+                        <p className="font-semibold text-indigo-900">Points clés à retenir :</p>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-indigo-800">
+                          <li><strong>Sécurité et Rôles :</strong> Les collaborateurs disposent d'un espace restreint et sécurisé. Les superviseurs valident les équipes. Les admins pilotent les paramètres.</li>
+                          <li><strong>Multi-projets :</strong> Créez de nouveaux espaces cloisonnés avec des templates dédiés.</li>
+                        </ul>
+                      </div>
+                      <Button className="bg-indigo-600 text-white hover:bg-indigo-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("settings"); }}>
+                        Accéder aux paramètres <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsTrainingModalOpen(false)}>Fermer le guide</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
         </Tabs>
       </main>

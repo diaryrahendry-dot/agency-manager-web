@@ -181,6 +181,7 @@
 - [x] Prévoir l’activation du traitement planifié après déploiement sans utiliser de timer dans le serveur
 - [x] Ajouter les tests de solde, validation, annulation, modification et permissions RH
 - [x] Vérifier le responsive agent/superviseur et sauvegarder un checkpoint final
+- [x] Ajouter une rubrique « Formation » dans le parcours d’intégration, avec un tutoriel interactif détaillé pour chaque module (RH, Comptabilité, CRM, Facturation, Paramètres) et des accès directs vers les rubriques
 
 - [x] Ajouter la table `creditNotes` ou les champs d’avoir dans le schéma Drizzle et générer la migration
 - [x] Créer les procédures tRPC `billing.createCreditNote`, `billing.listCreditNotes` et `accounting.convertCreditNoteToTransaction`
@@ -210,3 +211,7 @@
 - [x] Créer un espace de pilotage prestataire multi-clients pour administrer, créer et cloisonner les environnements clients
 - [x] Implémenter le contrôle d’accès renforcé, l’invitation sécurisée et le journal des modifications par client
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [ ] Ajouter une rubrique « Formation » dans le parcours d’intégration avec des fiches tutoriels pour chaque module
+- [ ] Créer un modal ou un panneau de lecture des tutoriels (RH, Comptabilité, CRM, Facturation, Paramètres)
+- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
