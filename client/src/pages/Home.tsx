@@ -6,7 +6,7 @@ import {
   Users, DollarSign, Kanban, Building2, FileText, Ticket, 
   Plus, Search, Download, CheckCircle, Clock, AlertCircle, 
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, FileSpreadsheet, 
-  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw
+  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw, Pencil, ArrowRight, ClipboardCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,19 +15,29 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { startLogin } from "@/const";
+import { DEFAULT_EUR_TO_MGA, formatMGA } from "@shared/currency";
+import { buildCommercialDocumentHtml, getCommercialTableColumnCount, type CommercialDocumentData } from "@shared/commercialDocuments";
+import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components/CommercialMGAColumns";
 
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const openDashboardModule = (tab: string) => {
+    setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // Requêtes tRPC
+  const [selectedTimeEntryAgentId, setSelectedTimeEntryAgentId] = useState<number | null>(null);
   const agentsQuery = trpc.hr.listAgents.useQuery(undefined, { enabled: isAuthenticated });
   const timeEntriesQuery = trpc.hr.listTimeEntries.useQuery(undefined, { enabled: isAuthenticated });
+  const agentTimeEntriesQuery = trpc.hr.listTimeEntries.useQuery(selectedTimeEntryAgentId ? { agentId: selectedTimeEntryAgentId } : undefined, { enabled: isAuthenticated && selectedTimeEntryAgentId !== null });
   const leavesQuery = trpc.hr.listLeaves.useQuery(undefined, { enabled: isAuthenticated });
   const advancesQuery = trpc.hr.listSalaryAdvances.useQuery(undefined, { enabled: isAuthenticated });
   const contractsQuery = trpc.hr.listContracts.useQuery(undefined, { enabled: isAuthenticated });
@@ -47,33 +57,93 @@ export default function Home() {
   const quotesQuery = trpc.billing.listQuotes.useQuery(undefined, { enabled: isAuthenticated });
   const invoicesQuery = trpc.billing.listInvoices.useQuery(undefined, { enabled: isAuthenticated });
   const nextInvoiceNumberQuery = trpc.billing.nextInvoiceNumber.useQuery(undefined, { enabled: isAuthenticated });
+  const nextQuoteNumberQuery = trpc.billing.nextQuoteNumber.useQuery(undefined, { enabled: isAuthenticated });
 
   // États pour les modals de création
   const [isAgentOpen, setIsAgentOpen] = useState(false);
+  const [agentFormError, setAgentFormError] = useState("");
   const [agentForm, setAgentForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "3000.00", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
 
   const [isTxOpen, setIsTxOpen] = useState(false);
+  const [isTimeEntryOpen, setIsTimeEntryOpen] = useState(false);
+  const [timeEntryForm, setTimeEntryForm] = useState({ agentId: 0, date: "2026-08-19", hoursWorked: "8", status: "présent" as "présent" | "absent" | "retard" | "congé", notes: "" });
   const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "1500.00", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web" });
 
   const [isLeadOpen, setIsLeadOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "5000.00", priority: "moyenne" as const, status: "nouveau" as const, nextContactDate: "2026-08-25", notes: "" });
+  const [isLeadEditOpen, setIsLeadEditOpen] = useState(false);
+  const [editingLeadId, setEditingLeadId] = useState<number | null>(null);
+  const [leadEditForm, setLeadEditForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "0.00", priority: "moyenne" as "basse" | "moyenne" | "haute" | "urgente", status: "nouveau" as "nouveau" | "contacté" | "proposition" | "negociation" | "gagne" | "perdu", nextContactDate: "", notes: "" });
 
   const [isClientOpen, setIsClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState({ companyName: "", contactName: "", email: "", phone: "", address: "", industry: "Conseil", category: "Standard", notes: "" });
 
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [isQuoteOpen, setIsQuoteOpen] = useState(false);
+  const [eurToMgaRate, setEurToMgaRate] = useState(String(DEFAULT_EUR_TO_MGA));
+  const [showMGAEquivalent, setShowMGAEquivalent] = useState(true);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
-  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance" });
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
+  const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
 
   const utils = trpc.useUtils();
 
   const createAgentMutation = trpc.hr.createAgent.useMutation({
     onSuccess: () => {
-      toast.success("Agent enregistré avec succès !");
+      toast.success("Employé enregistré avec succès !");
+      setAgentFormError("");
       setIsAgentOpen(false);
       utils.hr.listAgents.invalidate();
     },
-    onError: (err) => toast.error("Erreur : " + err.message)
+    onError: (err) => {
+      const message = err.message || "Impossible d’enregistrer cet employé.";
+      setAgentFormError(message);
+      toast.error(message);
+    }
+  });
+
+  const handleCreateAgent = () => {
+    const payload = {
+      ...agentForm,
+      name: agentForm.name.trim(),
+      email: agentForm.email.trim(),
+      phone: agentForm.phone.trim(),
+      position: agentForm.position.trim(),
+      department: agentForm.department.trim(),
+      salary: agentForm.salary.trim(),
+      address: agentForm.address.trim(),
+      emergencyContact: agentForm.emergencyContact.trim(),
+      notes: agentForm.notes.trim(),
+    };
+    if (!payload.name || !payload.email || !payload.position || !payload.department || !payload.hireDate || !payload.salary) {
+      setAgentFormError("Renseignez le nom, l’email, le poste, le département, la date d’embauche et le salaire.");
+      toast.error("Informations obligatoires manquantes");
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(payload.email)) {
+      setAgentFormError("Saisissez une adresse email professionnelle valide.");
+      toast.error("Email invalide");
+      return;
+    }
+    if (!Number.isFinite(Number(payload.salary)) || Number(payload.salary) < 0) {
+      setAgentFormError("Le salaire doit être un montant positif.");
+      toast.error("Salaire invalide");
+      return;
+    }
+    setAgentFormError("");
+    createAgentMutation.mutate(payload);
+  };
+
+  const createTimeEntryMutation = trpc.hr.createTimeEntry.useMutation({
+    onSuccess: () => {
+      toast.success("Pointage enregistré dans la feuille de l’agent.");
+      setIsTimeEntryOpen(false);
+      utils.hr.listTimeEntries.invalidate();
+      if (selectedTimeEntryAgentId) {
+        utils.hr.listTimeEntries.invalidate({ agentId: selectedTimeEntryAgentId });
+      }
+    },
+    onError: (err) => toast.error("Erreur de pointage : " + err.message),
   });
 
   const createTxMutation = trpc.accounting.createTransaction.useMutation({
@@ -95,6 +165,24 @@ export default function Home() {
     onError: (err) => toast.error("Erreur : " + err.message)
   });
 
+  const updateLeadStatusMutation = trpc.crm.updateLeadStatus.useMutation({
+    onSuccess: () => {
+      toast.success("Lead déplacé dans le pipeline.");
+      utils.crm.listLeads.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de déplacer le lead : " + err.message),
+  });
+
+  const updateLeadMutation = trpc.crm.updateLead.useMutation({
+    onSuccess: () => {
+      toast.success("Informations et notes du lead mises à jour.");
+      setIsLeadEditOpen(false);
+      setEditingLeadId(null);
+      utils.crm.listLeads.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de modifier le lead : " + err.message),
+  });
+
   const convertLeadMutation = trpc.crm.convertLeadToClient.useMutation({
     onSuccess: () => {
       toast.success("Lead converti en client avec succès !");
@@ -111,6 +199,27 @@ export default function Home() {
       utils.clientsModule.listClients.invalidate();
     },
     onError: (err) => toast.error("Erreur : " + err.message)
+  });
+
+  const createQuoteMutation = trpc.billing.createQuote.useMutation({
+    onSuccess: () => {
+      toast.success("Devis créé avec succès !");
+      setIsQuoteOpen(false);
+      utils.billing.listQuotes.invalidate();
+    },
+    onError: (err) => toast.error("Erreur : " + err.message)
+  });
+
+  const convertQuoteMutation = trpc.accounting.convertQuoteToTransaction.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.quoteNumber} a été ajouté à la comptabilité.`);
+      utils.billing.listQuotes.invalidate();
+      utils.accounting.listTransactions.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+    },
+    onError: (err) => toast.error("Conversion impossible : " + err.message)
   });
 
   const createInvoiceMutation = trpc.billing.createInvoice.useMutation({
@@ -148,6 +257,20 @@ export default function Home() {
     link.click();
     document.body.removeChild(link);
     toast.success("Export CSV comptable téléchargé !");
+  };
+
+  const downloadCommercialDocument = (kind: "facture" | "devis", documentData: CommercialDocumentData) => {
+    const html = buildCommercialDocumentHtml(kind, documentData, Number(eurToMgaRate) || 0, showMGAEquivalent);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${kind}-${documentData.number}.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`${kind === "facture" ? "Facture" : "Devis"} téléchargé(e) !`);
   };
 
   if (!isAuthenticated) {
@@ -196,10 +319,10 @@ export default function Home() {
       </header>
 
       {/* Main Container with Tabs */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-6 overflow-x-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <div className="flex overflow-x-auto pb-2 scrollbar-none">
-            <TabsList className="bg-white border border-slate-200 p-1.5 rounded-2xl shadow-sm flex space-x-1">
+          <div className="w-full overflow-x-auto pb-2 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <TabsList className="bg-white border border-slate-200 p-1.5 rounded-2xl shadow-sm flex w-max min-w-max space-x-1">
               <TabsTrigger value="dashboard" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <TrendingUp className="w-4 h-4 mr-2" /> Tableau de Bord
               </TabsTrigger>
@@ -224,7 +347,7 @@ export default function Home() {
           {/* TABLEAU DE BORD */}
           <TabsContent value="dashboard" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité depuis le chiffre d’affaires" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Chiffre d’Affaires Encaissé</CardTitle>
                   <ArrowUpRight className="w-5 h-5 text-emerald-600" />
@@ -233,10 +356,10 @@ export default function Home() {
                   <div className="text-2xl font-bold text-slate-900">
                     {accountingSummary.data?.totalEntrees?.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) || '0,00 €'}
                   </div>
-                  <p className="text-xs text-emerald-600 mt-1 font-medium">+12% ce mois-ci</p>
+                  <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-emerald-700 hover:bg-transparent hover:text-emerald-900" onClick={event => { event.stopPropagation(); openDashboardModule("accounting"); }}>Voir la comptabilité <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
               </Card>
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir les mouvements de caisse" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Trésorerie / Solde Caisse</CardTitle>
                   <DollarSign className="w-5 h-5 text-indigo-600" />
@@ -245,10 +368,10 @@ export default function Home() {
                   <div className="text-2xl font-bold text-slate-900">
                     {accountingSummary.data?.solde?.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) || '0,00 €'}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">Entrées vs Sorties</p>
+                  <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-indigo-700 hover:bg-transparent hover:text-indigo-900" onClick={event => { event.stopPropagation(); openDashboardModule("accounting"); }}>Voir les mouvements <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
               </Card>
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir les agents actifs" onClick={() => openDashboardModule("hr")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("hr"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Agents Actifs</CardTitle>
                   <Users className="w-5 h-5 text-blue-600" />
@@ -257,10 +380,10 @@ export default function Home() {
                   <div className="text-2xl font-bold text-slate-900">
                     {agentsQuery.data?.length || 0} collaborateurs
                   </div>
-                  <p className="text-xs text-blue-600 mt-1 font-medium">Contrats CDI & CDD</p>
+                  <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-blue-700 hover:bg-transparent hover:text-blue-900" onClick={event => { event.stopPropagation(); openDashboardModule("hr"); }}>Ouvrir les RH <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
               </Card>
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir les leads en pipeline" onClick={() => openDashboardModule("crm")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("crm"); }}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-slate-500">Leads en Pipeline</CardTitle>
                   <Kanban className="w-5 h-5 text-amber-600" />
@@ -269,13 +392,13 @@ export default function Home() {
                   <div className="text-2xl font-bold text-slate-900">
                     {leadsQuery.data?.length || 0} prospects
                   </div>
-                  <p className="text-xs text-amber-600 mt-1 font-medium">Kanban dynamique</p>
+                  <div className="mt-3"><Button variant="ghost" size="sm" className="h-7 px-0 text-amber-700 hover:bg-transparent hover:text-amber-900" onClick={event => { event.stopPropagation(); openDashboardModule("crm"); }}>Ouvrir le CRM <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button></div>
                 </CardContent>
               </Card>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité et le détail du chiffre d’affaires mensuel" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader>
                   <CardTitle>Analyse du CA mensuel</CardTitle>
                   <CardDescription>Encaissements, dépenses et facturation sur {revenueReportQuery.data?.year || new Date().getFullYear()}</CardDescription>
@@ -300,7 +423,7 @@ export default function Home() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité et le reporting annuel" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader>
                   <CardTitle>CA annuel & reporting automatique</CardTitle>
                   <CardDescription>Vue historique des performances financières de l’agence</CardDescription>
@@ -322,7 +445,7 @@ export default function Home() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="border-indigo-100 bg-indigo-50/60 shadow-sm lg:col-span-2">
+              <Card className="border-indigo-100 bg-indigo-50/60 shadow-sm lg:col-span-2 cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir le reporting comptable automatique" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -342,7 +465,7 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir les mouvements de caisse récents" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>
                 <CardHeader>
                   <CardTitle>Activité Récente & Mouvements</CardTitle>
                   <CardDescription>Dernières opérations enregistrées dans l'agence</CardDescription>
@@ -372,7 +495,7 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              <Card className="border-slate-200 shadow-sm bg-white">
+              <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:shadow-lg" role="button" tabIndex={0} aria-label="Ouvrir les tickets et le suivi RH" onClick={() => openDashboardModule("hr")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("hr"); }}>
                 <CardHeader>
                   <CardTitle>Tickets & Support Interconnectés</CardTitle>
                   <CardDescription>Suivi des demandes liées aux agents et clients</CardDescription>
@@ -409,7 +532,7 @@ export default function Home() {
                 <h2 className="text-2xl font-bold tracking-tight">Ressources Humaines</h2>
                 <p className="text-sm text-slate-500">Gestion des dossiers agents, pointages, congés, avances et contrats</p>
               </div>
-              <Dialog open={isAgentOpen} onOpenChange={setIsAgentOpen}>
+              <Dialog open={isAgentOpen} onOpenChange={(open) => { setIsAgentOpen(open); if (open) setAgentFormError(""); }}>
                 <DialogTrigger asChild>
                   <Button className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
                     <UserPlus className="w-4 h-4 mr-2" /> Nouvel Agent
@@ -461,11 +584,51 @@ export default function Home() {
                       </Select>
                     </div>
                   </div>
+                  {agentFormError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">{agentFormError}</div>}
                   <DialogFooter>
-                    <Button onClick={() => createAgentMutation.mutate(agentForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
-                      Enregistrer l'agent
+                    <Button onClick={handleCreateAgent} disabled={createAgentMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
+                      {createAgentMutation.isPending ? "Enregistrement…" : "Enregistrer l'employé"}
                     </Button>
                   </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={isTimeEntryOpen} onOpenChange={setIsTimeEntryOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="rounded-xl border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); }}>
+                    <ClipboardCheck className="w-4 h-4 mr-2" /> Nouveau pointage
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg bg-white rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Ajouter un pointage à la feuille agent</DialogTitle>
+                    <DialogDescription>Le pointage sera rattaché automatiquement au dossier de l’agent sélectionné.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                      <div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Feuille de pointage</p><p className="font-semibold text-slate-900">{agentsQuery.data?.find(agent => agent.id === selectedTimeEntryAgentId)?.name || "Sélectionnez un agent"}</p></div><Badge variant="outline" className="bg-white">{agentTimeEntriesQuery.data?.length || 0} entrée(s)</Badge></div>
+                      <div className="mt-3 space-y-1.5 max-h-28 overflow-y-auto">{agentTimeEntriesQuery.isLoading ? <p className="text-xs text-slate-500">Chargement de la feuille…</p> : agentTimeEntriesQuery.data?.length ? agentTimeEntriesQuery.data.slice(0, 5).map(entry => <div key={entry.id} className="flex items-center justify-between text-xs text-slate-600"><span>{String(entry.date).slice(0, 10)}</span><span>{entry.hoursWorked} h · {entry.status}</span></div>) : <p className="text-xs text-slate-500">Aucun pointage enregistré pour cet agent.</p>}</div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Agent</Label>
+                      <Select value={timeEntryForm.agentId ? String(timeEntryForm.agentId) : ""} onValueChange={value => { const agentId = Number(value); setSelectedTimeEntryAgentId(agentId); setTimeEntryForm({ ...timeEntryForm, agentId }); }}>
+                        <SelectTrigger><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger>
+                        <SelectContent>{agentsQuery.data?.map(agent => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name} · {agent.position}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2"><Label>Date</Label><Input type="date" value={timeEntryForm.date} onChange={e => setTimeEntryForm({ ...timeEntryForm, date: e.target.value })} /></div>
+                      <div className="space-y-2"><Label>Heures travaillées</Label><Input type="number" min="0" max="24" step="0.25" value={timeEntryForm.hoursWorked} onChange={e => setTimeEntryForm({ ...timeEntryForm, hoursWorked: e.target.value })} /></div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Statut</Label>
+                      <Select value={timeEntryForm.status} onValueChange={value => setTimeEntryForm({ ...timeEntryForm, status: value as typeof timeEntryForm.status })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="présent">Présent</SelectItem><SelectItem value="retard">Retard</SelectItem><SelectItem value="absent">Absent</SelectItem><SelectItem value="congé">Congé</SelectItem></SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2"><Label>Note du pointage</Label><Textarea value={timeEntryForm.notes} onChange={e => setTimeEntryForm({ ...timeEntryForm, notes: e.target.value })} placeholder="Retard justifié, intervention extérieure…" /></div>
+                  </div>
+                  <DialogFooter><Button disabled={!timeEntryForm.agentId || createTimeEntryMutation.isPending} onClick={() => createTimeEntryMutation.mutate(timeEntryForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createTimeEntryMutation.isPending ? "Enregistrement…" : "Enregistrer le pointage"}</Button></DialogFooter>
                 </DialogContent>
               </Dialog>
             </div>
@@ -486,6 +649,7 @@ export default function Home() {
                       <TableHead>Ancienneté</TableHead>
                       <TableHead>Salaire Net</TableHead>
                       <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Pointage</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -510,12 +674,13 @@ export default function Home() {
                           <TableCell>{seniority} an(s) (depuis {String(agent.hireDate)})</TableCell>
                           <TableCell>{Number(agent.salary).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
                           <TableCell><Badge className="bg-emerald-100 text-emerald-800">{agent.status}</Badge></TableCell>
+                          <TableCell className="text-right"><Button size="sm" variant="outline" className="rounded-lg border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { setSelectedTimeEntryAgentId(agent.id); setTimeEntryForm(form => ({ ...form, agentId: agent.id })); setIsTimeEntryOpen(true); }}><Clock className="w-3.5 h-3.5 mr-1" /> Pointer</Button></TableCell>
                         </TableRow>
                       );
                     })}
                     {(!agentsQuery.data || agentsQuery.data.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-6 text-slate-500">Aucun agent enregistré.</TableCell>
+                        <TableCell colSpan={7} className="text-center py-6 text-slate-500">Aucun agent enregistré.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -544,7 +709,7 @@ export default function Home() {
                       {timeEntriesQuery.data?.map(te => (
                         <TableRow key={te.id}>
                           <TableCell>{String(te.date)}</TableCell>
-                          <TableCell>Agent #{te.agentId}</TableCell>
+                          <TableCell>{agentsQuery.data?.find(agent => agent.id === te.agentId)?.name || `Agent #${te.agentId}`}</TableCell>
                           <TableCell className="font-semibold">{te.hoursWorked}h</TableCell>
                           <TableCell><Badge variant="outline">{te.status}</Badge></TableCell>
                         </TableRow>
@@ -754,8 +919,8 @@ export default function Home() {
             </div>
 
             {/* Vue Kanban Simple */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {['nouveau', 'contacté', 'proposition', 'gagne'].map(statusCol => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
+              {['nouveau', 'contacté', 'proposition', 'negociation', 'gagne', 'perdu'].map(statusCol => (
                 <div key={statusCol} className="bg-slate-100 p-4 rounded-2xl border border-slate-200 flex flex-col space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold capitalize text-slate-700">{statusCol}</h3>
@@ -774,13 +939,23 @@ export default function Home() {
                         <div className="text-sm font-semibold text-indigo-600">
                           {Number(lead.expectedAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                         </div>
-                        <div className="text-xs text-slate-400 flex items-center pt-1 border-t border-slate-100 justify-between">
+                        <div className="text-xs text-slate-400 flex items-center pt-1 border-t border-slate-100 justify-between gap-2">
                           <span>RDV : {lead.nextContactDate ? String(lead.nextContactDate) : 'Non planifié'}</span>
-                          {statusCol !== 'gagne' && (
+                          {statusCol !== 'gagne' && statusCol !== 'perdu' && (
                             <Button size="sm" variant="ghost" className="h-6 px-2 text-indigo-600 hover:bg-indigo-50" onClick={() => convertLeadMutation.mutate({ leadId: lead.id })}>
                               Convertir → Client
                             </Button>
                           )}
+                        </div>
+                        {lead.notes && <p className="text-xs text-slate-500 line-clamp-2">Note : {lead.notes}</p>}
+                        <div className="flex items-center gap-2 pt-2">
+                          <Select value={lead.status} onValueChange={value => updateLeadStatusMutation.mutate({ id: lead.id, status: value as typeof lead.status })}>
+                            <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Déplacer" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="nouveau">Nouveau</SelectItem><SelectItem value="contacté">Contacté</SelectItem><SelectItem value="proposition">Proposition</SelectItem><SelectItem value="negociation">Négociation</SelectItem><SelectItem value="gagne">Gagné</SelectItem><SelectItem value="perdu">Perdu</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button size="icon" variant="outline" className="h-8 w-8" title="Modifier les informations et les notes" onClick={() => { setEditingLeadId(lead.id); setLeadEditForm({ companyName: lead.companyName, contactName: lead.contactName, email: lead.email, phone: lead.phone || "", expectedAmount: String(lead.expectedAmount), priority: lead.priority, status: lead.status, nextContactDate: lead.nextContactDate ? String(lead.nextContactDate).slice(0, 10) : "", notes: lead.notes || "" }); setIsLeadEditOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
                         </div>
                       </Card>
                     ))}
@@ -788,6 +963,23 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            <Dialog open={isLeadEditOpen} onOpenChange={setIsLeadEditOpen}>
+              <DialogContent className="max-w-2xl bg-white rounded-2xl">
+                <DialogHeader><DialogTitle>Modifier le lead</DialogTitle><DialogDescription>Mettez à jour les informations, le statut commercial et les notes de suivi.</DialogDescription></DialogHeader>
+                <div className="grid grid-cols-2 gap-4 py-4">
+                  <div className="space-y-2"><Label>Entreprise / client</Label><Input value={leadEditForm.companyName} onChange={e => setLeadEditForm({ ...leadEditForm, companyName: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Contact</Label><Input value={leadEditForm.contactName} onChange={e => setLeadEditForm({ ...leadEditForm, contactName: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Email</Label><Input type="email" value={leadEditForm.email} onChange={e => setLeadEditForm({ ...leadEditForm, email: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Téléphone</Label><Input value={leadEditForm.phone} onChange={e => setLeadEditForm({ ...leadEditForm, phone: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Montant attendu (€)</Label><Input type="number" min="0" value={leadEditForm.expectedAmount} onChange={e => setLeadEditForm({ ...leadEditForm, expectedAmount: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Prochain contact</Label><Input type="date" value={leadEditForm.nextContactDate} onChange={e => setLeadEditForm({ ...leadEditForm, nextContactDate: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Priorité</Label><Select value={leadEditForm.priority} onValueChange={value => setLeadEditForm({ ...leadEditForm, priority: value as typeof leadEditForm.priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="basse">Basse</SelectItem><SelectItem value="moyenne">Moyenne</SelectItem><SelectItem value="haute">Haute</SelectItem><SelectItem value="urgente">Urgente</SelectItem></SelectContent></Select></div>
+                  <div className="space-y-2"><Label>Étape du pipeline</Label><Select value={leadEditForm.status} onValueChange={value => setLeadEditForm({ ...leadEditForm, status: value as typeof leadEditForm.status })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="nouveau">Nouveau</SelectItem><SelectItem value="contacté">Contacté</SelectItem><SelectItem value="proposition">Proposition</SelectItem><SelectItem value="negociation">Négociation</SelectItem><SelectItem value="gagne">Gagné</SelectItem><SelectItem value="perdu">Perdu</SelectItem></SelectContent></Select></div>
+                  <div className="col-span-2 space-y-2"><Label>Notes de suivi</Label><Textarea value={leadEditForm.notes} onChange={e => setLeadEditForm({ ...leadEditForm, notes: e.target.value })} placeholder="Compte rendu d’appel, objections, prochaine action…" /></div>
+                </div>
+                <DialogFooter><Button disabled={!editingLeadId || updateLeadMutation.isPending} onClick={() => editingLeadId && updateLeadMutation.mutate({ id: editingLeadId, ...leadEditForm })} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{updateLeadMutation.isPending ? "Enregistrement…" : "Enregistrer les modifications"}</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* BASE CLIENTS */}
@@ -891,7 +1083,35 @@ export default function Home() {
               <div>
                 <h2 className="text-2xl font-bold tracking-tight">Facturation & Devis</h2>
                 <p className="text-sm text-slate-500">Documents professionnels avec libellés clairs, numérotation automatique et statuts contrôlés</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500"><span className="font-semibold text-slate-700">Conversion affichée :</span><span>1 EUR =</span><Input className="h-8 w-24 bg-white" inputMode="decimal" value={eurToMgaRate} onChange={e => setEurToMgaRate(e.target.value.replace(/[^0-9.]/g, ""))} aria-label="Taux euro vers ariary" /><span className="font-semibold text-slate-700">MGA</span><span className="text-slate-400">Taux de référence modifiable</span><span className="ml-2 h-4 w-px bg-slate-200" /><div className="flex items-center gap-2"><Switch checked={showMGAEquivalent} onCheckedChange={setShowMGAEquivalent} id="show-mga-equivalent" /><Label htmlFor="show-mga-equivalent" className="cursor-pointer text-xs font-semibold text-slate-700">Afficher l’équivalent MGA</Label></div></div>
               </div>
+              <Dialog open={isQuoteOpen} onOpenChange={setIsQuoteOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" onClick={() => { setQuoteForm({ ...quoteForm, quoteNumber: nextQuoteNumberQuery.data || quoteForm.quoteNumber }); setIsQuoteOpen(true); }} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl">
+                    <FileText className="w-4 h-4 mr-2" /> Créer un devis
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-xl bg-white rounded-2xl">
+                  <DialogHeader><DialogTitle>Créer un devis professionnel</DialogTitle></DialogHeader>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-slate-900">
+                    <div className="flex items-start justify-between border-b border-slate-200 pb-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">AgencyManager Pro</p><p className="mt-1 text-xs text-slate-500">Proposition commerciale</p></div><div className="text-right"><p className="text-2xl font-black tracking-tight">DEVIS</p><p className="text-sm font-semibold text-slate-600">N° {quoteForm.quoteNumber}</p></div></div>
+                    <div className="grid grid-cols-2 gap-4 border-b border-slate-200 py-4 text-xs"><div><p className="font-bold uppercase tracking-wider text-slate-400">Proposé à</p><p className="mt-1 font-semibold">Client #{quoteForm.clientId}</p></div><div className="text-right"><p className="font-bold uppercase tracking-wider text-slate-400">Validité</p><p className="mt-1">Jusqu’au <span className="font-semibold">{quoteForm.validUntil}</span></p></div></div>
+                    <div className="flex items-start justify-between py-4 text-sm"><span>{quoteForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="text-right font-bold">{Number(quoteForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}{showMGAEquivalent && <span className="block text-xs font-medium text-slate-500">{formatMGA(Number(quoteForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span>}</span></div>
+                    <div className="flex justify-end border-t border-slate-200 pt-4 text-sm"><div className="space-y-1 text-right"><div className="font-semibold">Total de la proposition : {Number(quoteForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</div>{showMGAEquivalent && <div className="text-xs text-slate-500">Équivalent : {formatMGA(Number(quoteForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</div>}</div></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 py-4">
+                    <div className="space-y-2"><Label>Numéro du devis</Label><Input value={quoteForm.quoteNumber} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Référence client</Label><Input type="number" value={quoteForm.clientId} onChange={e => setQuoteForm({ ...quoteForm, clientId: Number(e.target.value) })} /></div>
+                    <div className="space-y-2"><Label>Date d’émission</Label><Input type="date" value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Valable jusqu’au</Label><Input type="date" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div>
+                    <div className="space-y-2 col-span-2"><Label>Montant total (€)</Label><Input inputMode="decimal" value={quoteForm.totalAmount} onChange={e => setQuoteForm({ ...quoteForm, totalAmount: e.target.value })} /></div>
+                    <div className="space-y-2 col-span-2"><Label>Libellé / lignes de prestation</Label><Textarea value={quoteForm.itemsJson} onChange={e => setQuoteForm({ ...quoteForm, itemsJson: e.target.value })} /></div>
+                    <div className="space-y-2 col-span-2"><Label>Notes</Label><Textarea value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /></div>
+                    <div className="space-y-2 col-span-2"><Label>Conditions générales de vente (CGV)</Label><Textarea value={quoteForm.termsAndConditions} onChange={e => setQuoteForm({ ...quoteForm, termsAndConditions: e.target.value })} placeholder="Validité, paiement, propriété intellectuelle, annulation…" /></div>
+                  </div>
+                  <DialogFooter><Button onClick={() => createQuoteMutation.mutate(quoteForm)} disabled={createQuoteMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createQuoteMutation.isPending ? "Création…" : "Enregistrer le devis"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
               <Dialog open={isInvoiceOpen} onOpenChange={setIsInvoiceOpen}>
                 <DialogTrigger asChild>
                   <Button onClick={() => { setEditingInvoiceId(null); setInvoiceForm({ ...invoiceForm, invoiceNumber: nextInvoiceNumberQuery.data || invoiceForm.invoiceNumber }); }} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
@@ -911,9 +1131,9 @@ export default function Home() {
                       <div><p className="font-bold uppercase tracking-wider text-slate-400">Facturé à</p><p className="mt-1 font-semibold">Client #{invoiceForm.clientId}</p><p className="text-slate-500">Fiche client associée</p></div>
                       <div className="text-right"><p className="font-bold uppercase tracking-wider text-slate-400">Dates</p><p className="mt-1">Émission : <span className="font-semibold">{invoiceForm.issueDate}</span></p><p>Échéance : <span className="font-semibold">{invoiceForm.dueDate}</span></p></div>
                     </div>
-                    <div className="py-4"><div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><span>Désignation</span><span>Montant TTC</span></div><div className="flex items-start justify-between px-3 py-3 text-sm"><span className="max-w-[70%]">{invoiceForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="font-bold">{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div>
-                    <div className="flex justify-end border-t border-slate-200 pt-4"><div className="w-48 space-y-2 text-sm"><div className="flex justify-between text-slate-500"><span>Total TTC</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div><div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Net à payer</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div></div>
-                    <p className="mt-4 text-[11px] text-slate-400">Conditions de règlement : se référer aux notes et à la date d’échéance indiquées.</p>
+                    <div className="py-4"><div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><span>Désignation</span><span>Montant TTC</span></div><div className="flex items-start justify-between px-3 py-3 text-sm"><span className="max-w-[70%]">{invoiceForm.itemsJson || "Ligne de prestation à compléter"}</span><span className="text-right font-bold"><span className="block">{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span>{showMGAEquivalent && <span className="block text-xs font-medium text-slate-500">{formatMGA(Number(invoiceForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span>}</span></div></div>
+                    <div className="flex justify-end border-t border-slate-200 pt-4"><div className="w-56 space-y-2 text-sm"><div className="flex justify-between text-slate-500"><span>Total TTC (EUR)</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div>{showMGAEquivalent && <div className="flex justify-between text-slate-500"><span>Équivalent (MGA)</span><span>{formatMGA(Number(invoiceForm.totalAmount || 0), Number(eurToMgaRate) || 0)}</span></div>}<div className="flex justify-between border-t border-slate-900 pt-2 text-base font-black"><span>Net à payer</span><span>{Number(invoiceForm.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</span></div></div></div>
+                    <p className="mt-4 text-[11px] text-slate-400">Conditions de règlement : se référer aux notes et à la date d’échéance indiquées.</p><div className="mt-3 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-500"><span className="font-bold uppercase tracking-wider text-slate-400">CGV</span><p className="mt-1 whitespace-pre-wrap">{invoiceForm.termsAndConditions || "CGV à compléter"}</p></div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 py-4">
                     <div className="space-y-2"><Label>Numéro de facture</Label><Input value={invoiceForm.invoiceNumber} disabled={Boolean(editingInvoiceId)} onChange={e => setInvoiceForm({...invoiceForm, invoiceNumber: e.target.value})} /></div>
@@ -923,9 +1143,10 @@ export default function Home() {
                     <div className="space-y-2 col-span-2"><Label>Montant total TTC (€)</Label><Input value={invoiceForm.totalAmount} onChange={e => setInvoiceForm({...invoiceForm, totalAmount: e.target.value})} placeholder="2400.00" /></div>
                     <div className="space-y-2 col-span-2"><Label>Libellé / lignes de prestation</Label><Textarea value={invoiceForm.itemsJson} onChange={e => setInvoiceForm({...invoiceForm, itemsJson: e.target.value})} placeholder="Conseil stratégique — 10 heures" /></div>
                     <div className="space-y-2 col-span-2"><Label>Notes et conditions de règlement</Label><Textarea value={invoiceForm.notes} onChange={e => setInvoiceForm({...invoiceForm, notes: e.target.value})} placeholder="Paiement à 30 jours, merci pour votre confiance." /></div>
+                    <div className="space-y-2 col-span-2"><Label>Conditions générales de vente (CGV)</Label><Textarea value={invoiceForm.termsAndConditions} onChange={e => setInvoiceForm({...invoiceForm, termsAndConditions: e.target.value})} placeholder="Délais de paiement, pénalités, propriété intellectuelle…" /></div>
                   </div>
                   <DialogFooter>
-                    <Button onClick={() => editingInvoiceId ? updateInvoiceDraftMutation.mutate({ id: editingInvoiceId, clientId: invoiceForm.clientId, quoteId: invoiceForm.quoteId, issueDate: invoiceForm.issueDate, dueDate: invoiceForm.dueDate, totalAmount: invoiceForm.totalAmount, itemsJson: invoiceForm.itemsJson, notes: invoiceForm.notes }) : createInvoiceMutation.mutate(invoiceForm)} disabled={createInvoiceMutation.isPending || updateInvoiceDraftMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
+                    <Button onClick={() => editingInvoiceId ? updateInvoiceDraftMutation.mutate({ id: editingInvoiceId, clientId: invoiceForm.clientId, quoteId: invoiceForm.quoteId, issueDate: invoiceForm.issueDate, dueDate: invoiceForm.dueDate, totalAmount: invoiceForm.totalAmount, itemsJson: invoiceForm.itemsJson, notes: invoiceForm.notes, termsAndConditions: invoiceForm.termsAndConditions }) : createInvoiceMutation.mutate(invoiceForm)} disabled={createInvoiceMutation.isPending || updateInvoiceDraftMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
                       {editingInvoiceId ? "Enregistrer le brouillon" : "Créer la facture"}
                     </Button>
                   </DialogFooter>
@@ -940,7 +1161,7 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Échéance</TableHead><TableHead>Montant TTC</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Échéance</TableHead><TableHead>Montant TTC</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {invoicesQuery.data?.map(inv => (
                       <TableRow key={inv.id}>
@@ -949,11 +1170,36 @@ export default function Home() {
                         <TableCell>{String(inv.issueDate).slice(0, 10)}</TableCell>
                         <TableCell>{String(inv.dueDate).slice(0, 10)}</TableCell>
                         <TableCell className="font-semibold">{Number(inv.totalAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
+                        <CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(inv.totalAmount)} rate={Number(eurToMgaRate) || 0} />
                         <TableCell><Badge variant={inv.status === "brouillon" ? "secondary" : "outline"}>{inv.status}</Badge></TableCell>
-                        <TableCell className="text-right">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}</TableCell>
+                        <TableCell className="text-right"><div className="flex justify-end gap-2">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "", termsAndConditions: inv.termsAndConditions || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}<Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("facture", { number: inv.invoiceNumber, clientId: inv.clientId, issueDate: inv.issueDate, dueDate: inv.dueDate, totalAmount: inv.totalAmount, itemsJson: inv.itemsJson, notes: inv.notes, termsAndConditions: inv.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button></div></TableCell>
                       </TableRow>
                     ))}
-                    {(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={7} className="text-center py-6 text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}
+                    {(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={getCommercialTableColumnCount(showMGAEquivalent)} className="text-center py-6 text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 shadow-sm bg-white">
+              <CardHeader><CardTitle>Devis commerciaux</CardTitle><CardDescription>Création, suivi de validité et téléchargement des propositions avec CGV.</CardDescription></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Client</TableHead><TableHead>Émission</TableHead><TableHead>Validité</TableHead><TableHead>Montant EUR</TableHead><CommercialMGAColumnHeader show={showMGAEquivalent} /><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {quotesQuery.data?.map(quote => (
+                      <TableRow key={quote.id}>
+                        <TableCell><div className="flex flex-col"><span className="font-bold text-slate-900">Devis · {quote.quoteNumber}</span><span className="text-xs text-slate-500">{quote.termsAndConditions ? "CGV renseignées" : "CGV à compléter"}</span></div></TableCell>
+                        <TableCell>Client #{quote.clientId}</TableCell>
+                        <TableCell>{String(quote.issueDate).slice(0, 10)}</TableCell>
+                        <TableCell>{String(quote.validUntil).slice(0, 10)}</TableCell>
+                        <TableCell className="font-semibold">{Number(quote.totalAmount).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</TableCell>
+                        <CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(quote.totalAmount)} rate={Number(eurToMgaRate) || 0} />
+                        <TableCell><Badge variant={quote.status === "brouillon" ? "secondary" : "outline"}>{quote.status}</Badge></TableCell>
+                        <TableCell className="text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("devis", { number: quote.quoteNumber, clientId: quote.clientId, issueDate: quote.issueDate, validUntil: quote.validUntil, totalAmount: quote.totalAmount, itemsJson: quote.itemsJson, notes: quote.notes, termsAndConditions: quote.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button><Button size="sm" variant="outline" disabled={quote.status === "facturé" || convertQuoteMutation.isPending} onClick={() => convertQuoteMutation.mutate({ quoteId: quote.id })} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><DollarSign className="mr-1 h-3.5 w-3.5" /> {quote.status === "facturé" ? "En compta" : "Passer en compta"}</Button></div></TableCell>
+                      </TableRow>
+                    ))}
+                    {(!quotesQuery.data || quotesQuery.data.length === 0) && <TableRow><TableCell colSpan={getCommercialTableColumnCount(showMGAEquivalent)} className="text-center py-6 text-slate-500">Aucun devis enregistré. Cliquez sur « Créer un devis » pour commencer.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </CardContent>

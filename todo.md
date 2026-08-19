@@ -25,4 +25,44 @@
 - [x] Ajouter l'interface de modification des factures au statut brouillon avec libellés style facture.net
 - [x] Valider les tests Vitest et créer le checkpoint final
 - [x] Renforcer la présentation de facture avec un template visuel structuré inspiré des usages de facture.net
-- [ ] Créer un nouveau checkpoint après les modifications de reporting, graphiques et édition de brouillon
+- [x] Créer un nouveau checkpoint après les modifications de reporting, graphiques et édition de brouillon
+- [x] Diagnostiquer et corriger le bug de la procédure d’ajout d’employé dans le routeur et l’interface
+- [x] Ajouter la gestion du taux de change EUR / MGA et l’affichage simultané en ariary dans les devis et factures
+- [x] Exécuter les tests unitaires Vitest et vérifier la compilation TypeScript
+- [x] Créer le checkpoint final de la version corrigée
+- [x] Ajouter des tests dédiés à hr.createAgent pour les validations d’erreur
+- [x] Étendre l’affichage EUR/MGA aux devis, à leur liste et à leur aperçu
+- [x] Centraliser le taux EUR/MGA dans un helper applicatif partagé et documenter son caractère configurable
+- [x] Créer le checkpoint final de la version corrigée après ces compléments
+- [x] Ajouter le champ CGV dans le schéma et les formulaires de devis et factures
+- [x] Mettre en place un bouton de création de devis indépendant avec numérotation et statuts
+- [x] Implémenter le téléchargement des factures et devis au format texte/HTML structuré depuis l’interface
+- [x] Valider l’ensemble avec les tests Vitest et TypeScript
+- [x] Sauvegarder le checkpoint final de la version complète
+- [x] Ajouter une option d’affichage pour masquer l’équivalent en ariary sur les devis et factures
+- [x] Ajouter une procédure et une action pour convertir un devis en mouvement comptable (entrée de trésorerie)
+- [x] Valider l’ensemble avec les tests Vitest et TypeScript
+- [x] Sauvegarder le checkpoint final complet
+- [x] Rendre conditionnelle toute la colonne MGA dans les tableaux de devis et factures, y compris les cellules et les états vides
+- [x] Vérifier le mode MGA masqué dans les listes, aperçus et téléchargements
+- [x] Ajouter un test de contrat UI automatisé confirmant que le mode MGA masqué conditionne les tableaux, aperçus et téléchargements
+- [x] Extraire le générateur de document commercial dans un helper testable avec le paramètre d’affichage MGA
+- [x] Ajouter un test automatisé du HTML téléchargé avec et sans équivalent MGA
+- [x] Ajouter une vérification de rendu ciblée des colonnes conditionnelles factures/devis
+- [x] Ajouter un système de pointage rapide relié à la feuille de chaque agent
+- [x] Ajouter les actions de déplacement, d’édition et de notes sur les leads dans le Kanban CRM
+- [x] Valider l’ensemble avec TypeScript et Vitest
+- [x] Sauvegarder le checkpoint final de la version complète
+- [x] Afficher une feuille de pointage filtrée par agent directement dans sa fiche RH et recharger cette vue après ajout rapide
+- [x] Créer et enregistrer un checkpoint après les modifications pointage RH et Kanban CRM
+- [x] Synchroniser le sélecteur d’agent du modal avec l’agent de la feuille affichée
+- [x] Invalider et recharger la feuille filtrée après l’ajout rapide d’un pointage
+- [x] Ajouter un test ciblé de synchronisation et de rechargement du pointage agent
+- [x] Créer un checkpoint après la correction finale du pointage RH et du Kanban CRM
+- [x] Rendre chaque carte KPI et chaque section du tableau de bord interactive avec des déclencheurs de navigation vers les onglets respectifs (Comptabilité, RH, CRM)
+- [x] Ajouter un effet visuel de survol et un indicateur de clic sur les cartes du dashboard
+- [x] Valider l’interactivité avec TypeScript, les tests unitaires et un checkpoint final
+- [x] Corriger l’affichage mobile de la navigation horizontale pour conserver des onglets accessibles et lisibles
+- [x] Ajouter un test de contrat garantissant les destinations des cartes KPI et graphiques du dashboard
+- [ ] Créer un nouveau checkpoint après les corrections finales du pointage RH, du Kanban CRM et du dashboard interactif
+- [ ] Mettre à jour les lignes de checkpoint dans todo.md après confirmation de la sauvegarde réussie

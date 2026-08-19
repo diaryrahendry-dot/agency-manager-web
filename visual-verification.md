@@ -9,3 +9,14 @@ Les zones facturation ont été réorganisées avec un aperçu de libellé “FA
 ## Vérification mobile
 
 La capture à 390 px confirme que les cartes KPI, les deux graphiques, le reporting automatique et les blocs d’activité passent en colonne unique avec une lisibilité conservée. La navigation supérieure reste défilable horizontalement, ce qui évite de couper les onglets fonctionnels sur petit écran.
+
+## Vérification pointage et CRM — 2026-08-19
+
+- Desktop : le shell AgencyManager Pro reste lisible, avec les indicateurs et graphiques visibles sans erreur de compilation.
+- Mobile : les cartes du tableau de bord s’empilent correctement et la navigation horizontale reste accessible ; les nouveaux contrôles RH/CRM sont placés dans des modales et cartes adaptées aux petits écrans.
+- Les logs de capture signalent uniquement l’absence de cookie de session dans le navigateur de vérification, pas une erreur TypeScript ou de dépendances.
+## Vérification dashboard interactif — 19 août 2026
+
+Les cartes KPI du tableau de bord affichent maintenant des actions explicites vers la comptabilité, les RH et le CRM. Les graphiques mensuel et annuel, le reporting automatique, les mouvements récents et les tickets sont également cliquables et redirigent vers leur module métier. Les cartes disposent d’un effet de survol, d’un focus clavier et d’un libellé ARIA.
+
+La navigation des onglets utilise un conteneur horizontal accessible sur mobile. Après correction, le premier onglet reste lisible et les autres modules peuvent être atteints par défilement horizontal sans provoquer de débordement de la page.

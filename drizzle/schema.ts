@@ -169,6 +169,7 @@ export const quotes = mysqlTable("quotes", {
   status: mysqlEnum("status", ["brouillon", "envoyé", "accepté", "refusé", "facturé"]).default("brouillon").notNull(),
   itemsJson: text("itemsJson").notNull(), // JSON des lignes de devis
   notes: text("notes"),
+  termsAndConditions: text("termsAndConditions"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -183,6 +184,7 @@ export const invoices = mysqlTable("invoices", {
   status: mysqlEnum("status", ["brouillon", "émise", "payée", "en_retard", "annulée"]).default("brouillon").notNull(),
   itemsJson: text("itemsJson").notNull(), // JSON des lignes de facture
   notes: text("notes"),
+  termsAndConditions: text("termsAndConditions"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

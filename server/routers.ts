@@ -39,48 +39,55 @@ export const appRouter = router({
       return await db.getAgents();
     }),
     createAgent: protectedProcedure.input(z.object({
-      name: z.string(),
-      email: z.string().email(),
-      phone: z.string().optional(),
-      position: z.string(),
-      department: z.string(),
-      hireDate: z.string(),
-      salary: z.string(),
-      contractType: z.string(),
-      address: z.string().optional(),
-      emergencyContact: z.string().optional(),
-      notes: z.string().optional(),
+      name: z.string().trim().min(1, "Le nom est obligatoire"),
+      email: z.string().trim().email("L’email professionnel est invalide"),
+      phone: z.string().trim().optional(),
+      position: z.string().trim().min(1, "Le poste est obligatoire"),
+      department: z.string().trim().min(1, "Le département est obligatoire"),
+      hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date d’embauche est invalide"),
+      salary: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le salaire doit être un montant positif"),
+      contractType: z.string().trim().min(1, "Le type de contrat est obligatoire"),
+      address: z.string().trim().optional(),
+      emergencyContact: z.string().trim().optional(),
+      notes: z.string().trim().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.insert(agents).values({
-        name: input.name,
-        email: input.email,
-        phone: input.phone || null,
-        position: input.position,
-        department: input.department,
-        hireDate: input.hireDate,
-        salary: input.salary,
-        contractType: input.contractType,
-        address: input.address || null,
-        emergencyContact: input.emergencyContact || null,
-        notes: input.notes || null,
-      } as any);
-      return { success: true };
+      try {
+        await database.insert(agents).values({
+          name: input.name,
+          email: input.email,
+          phone: input.phone || null,
+          position: input.position,
+          department: input.department,
+          hireDate: input.hireDate,
+          salary: input.salary,
+          contractType: input.contractType,
+          address: input.address || null,
+          emergencyContact: input.emergencyContact || null,
+          notes: input.notes || null,
+        } as any);
+        return { success: true };
+      } catch (error) {
+        console.error("[HR] Failed to create agent", error);
+        throw new Error("Impossible d’enregistrer cet employé. Vérifiez les informations saisies et réessayez.");
+      }
     }),
 
-    listTimeEntries: protectedProcedure.query(async () => {
-      return await db.getTimeEntries();
+    listTimeEntries: protectedProcedure.input(z.object({ agentId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return await db.getTimeEntries(input?.agentId);
     }),
     createTimeEntry: protectedProcedure.input(z.object({
-      agentId: z.number(),
-      date: z.string(),
-      hoursWorked: z.string(),
+      agentId: z.number().int().positive(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date du pointage est invalide"),
+      hoursWorked: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24, "Les heures doivent être comprises entre 0 et 24"),
       status: z.enum(["présent", "absent", "retard", "congé"]),
-      notes: z.string().optional(),
+      notes: z.string().trim().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const agent = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.agentId)).limit(1);
+      if (agent.length === 0) throw new Error("Agent introuvable");
       await database.insert(timeEntries).values({
         agentId: input.agentId,
         date: input.date,
@@ -246,6 +253,32 @@ export const appRouter = router({
       } as any);
       return { success: true };
     }),
+    convertQuoteToTransaction: protectedProcedure.input(z.object({
+      quoteId: z.number().int().positive(),
+      paymentMethod: z.string().trim().min(1).default("À encaisser"),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const quoteRows = await database.select().from(quotes).where(eq(quotes.id, input.quoteId)).limit(1);
+      const quote = quoteRows[0];
+      if (!quote) throw new Error("Devis introuvable");
+      if (quote.status === "facturé") throw new Error("Ce devis est déjà présent dans la comptabilité");
+      const existingTransactions = await db.getCashTransactions();
+      if (existingTransactions.some(transaction => transaction.reference === quote.quoteNumber)) {
+        throw new Error("Ce devis possède déjà un mouvement comptable associé");
+      }
+      await database.insert(cashTransactions).values({
+        type: "entrée",
+        category: "Vente / Devis",
+        amount: String(quote.totalAmount),
+        date: new Date().toISOString().slice(0, 10),
+        paymentMethod: input.paymentMethod,
+        reference: quote.quoteNumber,
+        description: `Conversion du ${quote.quoteNumber} en entrée comptable`,
+      } as any);
+      await database.update(quotes).set({ status: "facturé" }).where(eq(quotes.id, input.quoteId));
+      return { success: true, quoteNumber: quote.quoteNumber };
+    }),
     summary: protectedProcedure.query(async () => {
       const txs = await db.getCashTransactions();
       let totalEntrees = 0;
@@ -390,6 +423,33 @@ export const appRouter = router({
       await database.update(leads).set({ status: input.status }).where(eq(leads.id, input.id));
       return { success: true };
     }),
+    updateLead: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      companyName: z.string().trim().min(1, "L’entreprise est obligatoire"),
+      contactName: z.string().trim().min(1, "Le contact est obligatoire"),
+      email: z.string().trim().email("L’email du lead est invalide"),
+      phone: z.string().trim().optional(),
+      expectedAmount: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le montant attendu est invalide"),
+      priority: z.enum(["basse", "moyenne", "haute", "urgente"]),
+      status: z.enum(["nouveau", "contacté", "proposition", "negociation", "gagne", "perdu"]),
+      nextContactDate: z.string().optional(),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.update(leads).set({
+        companyName: input.companyName,
+        contactName: input.contactName,
+        email: input.email,
+        phone: input.phone || null,
+        expectedAmount: input.expectedAmount,
+        priority: input.priority,
+        status: input.status,
+        nextContactDate: input.nextContactDate || null,
+        notes: input.notes || null,
+      } as any).where(eq(leads.id, input.id));
+      return { success: true };
+    }),
     convertLeadToClient: protectedProcedure.input(z.object({
       leadId: z.number(),
     })).mutation(async ({ input }) => {
@@ -510,6 +570,7 @@ export const appRouter = router({
       totalAmount: z.string(),
       itemsJson: z.string(),
       notes: z.string().optional(),
+      termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -521,6 +582,7 @@ export const appRouter = router({
         totalAmount: input.totalAmount,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
+        termsAndConditions: input.termsAndConditions || null,
         status: "brouillon",
       } as any);
       return { success: true };
@@ -547,6 +609,7 @@ export const appRouter = router({
       totalAmount: z.string(),
       itemsJson: z.string(),
       notes: z.string().optional(),
+      termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -559,6 +622,7 @@ export const appRouter = router({
         totalAmount: input.totalAmount,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
+        termsAndConditions: input.termsAndConditions || null,
         status: "brouillon",
       } as any);
       return { success: true };
@@ -581,6 +645,7 @@ export const appRouter = router({
       totalAmount: z.string(),
       itemsJson: z.string(),
       notes: z.string().optional(),
+      termsAndConditions: z.string().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -595,8 +660,18 @@ export const appRouter = router({
         totalAmount: input.totalAmount,
         itemsJson: input.itemsJson,
         notes: input.notes || null,
+        termsAndConditions: input.termsAndConditions || null,
       } as any).where(eq(invoices.id, input.id));
       return { success: true };
+    }),
+    nextQuoteNumber: protectedProcedure.query(async () => {
+      const quoteList = await db.getQuotes();
+      const currentYear = new Date().getFullYear();
+      const maxSequence = quoteList.reduce((max, quote) => {
+        const match = String(quote.quoteNumber).match(new RegExp(`DEV-${currentYear}-(\\d+)`));
+        return Math.max(max, match ? Number(match[1]) : 0);
+      }, 0);
+      return `DEV-${currentYear}-${String(maxSequence + 1).padStart(3, "0")}`;
     }),
     nextInvoiceNumber: protectedProcedure.query(async () => {
       const invoiceList = await db.getInvoices();
