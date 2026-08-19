@@ -1181,6 +1181,79 @@ export default function Home() {
 
           {/* TABLEAU DE BORD */}
           <TabsContent value="dashboard" className="space-y-6">
+            {/* Onboarding Interactif pour l’Agence */}
+            <Card className="border-sky-200 bg-gradient-to-r from-sky-50 via-teal-50 to-amber-50 shadow-md">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <Badge className="mb-2 bg-sky-500 text-white font-semibold">Parcours d’intégration interactif</Badge>
+                    <CardTitle className="text-xl font-bold text-slate-900">Bienvenue dans votre cockpit AgencyManager Pro !</CardTitle>
+                    <CardDescription>Suivez ces étapes clés pour configurer votre agence et exploiter tout son potentiel.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-600">Progression :</span>
+                    <span className="rounded-full bg-teal-600 px-3 py-1 text-xs font-black text-white shadow-sm">
+                      {[isAdmin, (agentsQuery.data?.length || 0) > 0, (clientsQuery.data?.length || 0) > 0, (invoicesQuery.data?.length || 0) > 0].filter(Boolean).length} / 4 étapes
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  {/* Étape 1 */}
+                  <div className={`rounded-2xl border p-4 transition-all ${isAdmin ? "border-emerald-200 bg-emerald-50/70 text-emerald-950" : "border-sky-200 bg-white shadow-xs"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-500">Étape 1</span>
+                      {isAdmin ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5 text-sky-600" />}
+                    </div>
+                    <h3 className="font-bold text-sm mb-1">Rôles & Paramètres</h3>
+                    <p className="text-xs text-slate-600 mb-3">Définissez vos préférences et activez vos permissions de rôle.</p>
+                    <Button size="sm" variant={isAdmin ? "outline" : "default"} className={`w-full text-xs font-semibold rounded-xl ${isAdmin ? "border-emerald-300 text-emerald-800 bg-white" : "bg-gradient-to-r from-sky-500 to-teal-500 text-white"}`} onClick={() => setActiveTab("settings")}>
+                      {isAdmin ? "Vérifié ✓" : "Configurer"}
+                    </Button>
+                  </div>
+
+                  {/* Étape 2 */}
+                  <div className={`rounded-2xl border p-4 transition-all ${(agentsQuery.data?.length || 0) > 0 ? "border-emerald-200 bg-emerald-50/70 text-emerald-950" : "border-sky-200 bg-white shadow-xs"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-500">Étape 2</span>
+                      {(agentsQuery.data?.length || 0) > 0 ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5 text-sky-600" />}
+                    </div>
+                    <h3 className="font-bold text-sm mb-1">Équipe RH & Agents</h3>
+                    <p className="text-xs text-slate-600 mb-3">Ajoutez vos collaborateurs et suivez leurs pointages en jours.</p>
+                    <Button size="sm" variant={(agentsQuery.data?.length || 0) > 0 ? "outline" : "default"} className={`w-full text-xs font-semibold rounded-xl ${(agentsQuery.data?.length || 0) > 0 ? "border-emerald-300 text-emerald-800 bg-white" : "bg-gradient-to-r from-sky-500 to-teal-500 text-white"}`} onClick={() => setActiveTab("hr")}>
+                      {(agentsQuery.data?.length || 0) > 0 ? `${agentsQuery.data?.length} agent(s) actif(s)` : "Ajouter un agent"}
+                    </Button>
+                  </div>
+
+                  {/* Étape 3 */}
+                  <div className={`rounded-2xl border p-4 transition-all ${(clientsQuery.data?.length || 0) > 0 ? "border-emerald-200 bg-emerald-50/70 text-emerald-950" : "border-sky-200 bg-white shadow-xs"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-500">Étape 3</span>
+                      {(clientsQuery.data?.length || 0) > 0 ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5 text-sky-600" />}
+                    </div>
+                    <h3 className="font-bold text-sm mb-1">Base Clients & CRM</h3>
+                    <p className="text-xs text-slate-600 mb-3">Qualifiez vos prospects et organisez vos fiches clients.</p>
+                    <Button size="sm" variant={(clientsQuery.data?.length || 0) > 0 ? "outline" : "default"} className={`w-full text-xs font-semibold rounded-xl ${(clientsQuery.data?.length || 0) > 0 ? "border-emerald-300 text-emerald-800 bg-white" : "bg-gradient-to-r from-sky-500 to-teal-500 text-white"}`} onClick={() => setActiveTab("clients")}>
+                      {(clientsQuery.data?.length || 0) > 0 ? `${clientsQuery.data?.length} client(s) enregistrés` : "Créer un client"}
+                    </Button>
+                  </div>
+
+                  {/* Étape 4 */}
+                  <div className={`rounded-2xl border p-4 transition-all ${(invoicesQuery.data?.length || 0) > 0 ? "border-emerald-200 bg-emerald-50/70 text-emerald-950" : "border-sky-200 bg-white shadow-xs"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-500">Étape 4</span>
+                      {(invoicesQuery.data?.length || 0) > 0 ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5 text-sky-600" />}
+                    </div>
+                    <h3 className="font-bold text-sm mb-1">Devis & Facturation</h3>
+                    <p className="text-xs text-slate-600 mb-3">Émettez vos premiers devis et factures conformes.</p>
+                    <Button size="sm" variant={(invoicesQuery.data?.length || 0) > 0 ? "outline" : "default"} className={`w-full text-xs font-semibold rounded-xl ${(invoicesQuery.data?.length || 0) > 0 ? "border-emerald-300 text-emerald-800 bg-white" : "bg-gradient-to-r from-sky-500 to-teal-500 text-white"}`} onClick={() => setActiveTab("billing")}>
+                      {(invoicesQuery.data?.length || 0) > 0 ? `${invoicesQuery.data?.length} facture(s)` : "Émettre une facture"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             {isCollaborator && <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-indigo-600" /> Mon espace collaborateur</CardTitle><CardDescription>Un espace personnel pour enregistrer votre journée et transmettre vos demandes au suivi RH.</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-5"><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Pointages</p><p className="text-xl font-bold text-indigo-700">{timeEntriesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-cyan-100 bg-cyan-50/70 p-3"><p className="text-xs text-cyan-700">Solde congé</p><p className="text-xl font-bold text-cyan-800">{Number(agentsQuery.data?.[0]?.leaveBalanceDays ?? 0).toFixed(2)} j</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Congés</p><p className="text-xl font-bold text-emerald-700">{leavesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Avances</p><p className="text-xl font-bold text-amber-700">{advancesQuery.data?.length || 0}</p></div><div className="rounded-xl border border-indigo-100 bg-white/80 p-3"><p className="text-xs text-slate-500">Tickets</p><p className="text-xl font-bold text-rose-700">{ticketsQuery.data?.length || 0}</p></div></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Button className="bg-indigo-600 text-white hover:bg-indigo-500" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); setIsTimeEntryOpen(true); }}><ClipboardCheck className="mr-2 h-4 w-4" /> Nouveau pointage</Button><Button variant="outline" className="border-amber-200 text-amber-800 hover:bg-amber-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setAdvanceForm(form => ({ ...form, agentId })); setIsAdvanceOpen(true); }}><WalletCards className="mr-2 h-4 w-4" /> Demander une avance</Button><Button variant="outline" className="border-emerald-200 text-emerald-800 hover:bg-emerald-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setLeaveForm(form => ({ ...form, agentId })); setIsLeaveOpen(true); }}><Calendar className="mr-2 h-4 w-4" /> Demander un congé</Button><Button variant="outline" className="border-rose-200 text-rose-800 hover:bg-rose-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setTicketForm(form => ({ ...form, agentId, title: "", description: "", category: "Demande exceptionnelle" })); setIsTicketOpen(true); }}><Ticket className="mr-2 h-4 w-4" /> Créer un ticket</Button></div><p className="text-xs text-slate-500">Les pointages sont verrouillés après création. Les demandes de congé, d’avance et d’exception sont automatiquement rattachées à votre compte et transmises au suivi RH.</p></CardContent></Card>}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {canViewRevenueDashboard && <Card className="border-slate-200 shadow-sm bg-white cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-indigo-400" role="button" tabIndex={0} aria-label="Ouvrir la comptabilité depuis le chiffre d’affaires" onClick={() => openDashboardModule("accounting")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") openDashboardModule("accounting"); }}>

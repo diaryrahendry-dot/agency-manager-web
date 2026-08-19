@@ -202,3 +202,7 @@
 - [x] Intégrer des touches visuelles ludiques et accueillantes (badges ensoleillés, icônes pastel, en-têtes chaleureux) sur tout le dashboard
 - [x] Vérifier la lisibilité, le contraste et le responsive (desktop, tablette, mobile) des modules RH, comptabilité, CRM et facturation
 - [x] Exécuter les 50 tests Vitest, le build de production et sauvegarder le checkpoint final de la refonte visuelle
+
+- [x] Créer une page d’accueil avec parcours d’intégration interactif (onboarding) guidant les nouveaux utilisateurs pas à pas
+- [x] Intégrer des étapes interactives mémorisées (création d’agence, choix du premier template, ajout d’un agent ou d’un client, premier pointage ou devis)
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
