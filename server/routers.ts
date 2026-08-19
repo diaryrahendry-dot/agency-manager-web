@@ -592,6 +592,66 @@ export const appRouter = router({
 
   // Module Statistiques dynamiques & Budget Planner
   planning: router({
+    accountingStatistics: protectedProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional(),
+      type: z.enum(["tous", "entrée", "sortie"]).default("tous"),
+      category: z.string().trim().optional(),
+    }).optional()).query(async ({ input }) => {
+      const transactions = await db.getCashTransactions();
+      const monthKey = input?.monthKey || "";
+      const category = input?.category?.trim() || "";
+      const filtered = transactions.filter((transaction) => {
+        const matchesMonth = !monthKey || dateKey(transaction.date).startsWith(monthKey);
+        const matchesType = !input?.type || input.type === "tous" || transaction.type === input.type;
+        const matchesCategory = !category || transaction.category === category;
+        return matchesMonth && matchesType && matchesCategory;
+      });
+      const amounts = filtered.map((transaction) => amountOf(transaction.amount)).sort((a, b) => a - b);
+      const median = amounts.length ? amounts[Math.floor(amounts.length / 2)] : 0;
+      const referenceDate = monthKey ? new Date(`${monthKey}-15T12:00:00Z`) : new Date();
+      const rows = filtered.map((transaction) => {
+        const amount = amountOf(transaction.amount);
+        const transactionDate = new Date(`${dateKey(transaction.date)}T12:00:00Z`);
+        const ageInDays = Number.isFinite(transactionDate.getTime()) ? Math.max(0, Math.round((referenceDate.getTime() - transactionDate.getTime()) / 86400000)) : 0;
+        const important = amount >= median && amount > 0;
+        const urgent = ageInDays <= 14 || transaction.type === "sortie";
+        const eisenhowerQuadrant = important && urgent ? "important-urgent" : important ? "important-non-urgent" : urgent ? "non-important-urgent" : "non-important-non-urgent";
+        return {
+          id: transaction.id,
+          date: dateKey(transaction.date),
+          monthKey: dateKey(transaction.date).slice(0, 7),
+          type: transaction.type,
+          category: transaction.category,
+          description: transaction.description,
+          paymentMethod: transaction.paymentMethod,
+          currency: transaction.currency === "MGA" ? "MGA" : "EUR",
+          amountInCurrency: amountOf(transaction.amountInCurrency || transaction.amount),
+          amountEur: amount,
+          amountMga: convertEurToMga(amount),
+          amount,
+          ageInDays,
+          eisenhowerQuadrant,
+        };
+      }).sort((a, b) => b.date.localeCompare(a.date));
+      const monthsMap = new Map<string, { monthKey: string; entries: number; sorties: number; revenueEur: number; expensesEur: number; balanceEur: number }>();
+      for (const row of rows) {
+        const current = monthsMap.get(row.monthKey) || { monthKey: row.monthKey, entries: 0, sorties: 0, revenueEur: 0, expensesEur: 0, balanceEur: 0 };
+        if (row.type === "entrée") { current.entries += 1; current.revenueEur += row.amountEur; }
+        else { current.sorties += 1; current.expensesEur += row.amountEur; }
+        current.balanceEur = current.revenueEur - current.expensesEur;
+        monthsMap.set(row.monthKey, current);
+      }
+      const categories = Array.from(new Set(transactions.map((transaction) => transaction.category))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr"));
+      const totalRevenueEur = rows.filter((row) => row.type === "entrée").reduce((sum, row) => sum + row.amountEur, 0);
+      const totalExpensesEur = rows.filter((row) => row.type === "sortie").reduce((sum, row) => sum + row.amountEur, 0);
+      return {
+        filters: { monthKey, type: input?.type || "tous", category },
+        categories,
+        rows,
+        months: Array.from(monthsMap.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey)).map((month) => ({ ...month, revenueMga: convertEurToMga(month.revenueEur), expensesMga: convertEurToMga(month.expensesEur), balanceMga: convertEurToMga(month.balanceEur) })),
+        totals: { entries: rows.filter((row) => row.type === "entrée").length, sorties: rows.filter((row) => row.type === "sortie").length, revenueEur: totalRevenueEur, expensesEur: totalExpensesEur, balanceEur: totalRevenueEur - totalExpensesEur, revenueMga: convertEurToMga(totalRevenueEur), expensesMga: convertEurToMga(totalExpensesEur), balanceMga: convertEurToMga(totalRevenueEur - totalExpensesEur) },
+      };
+    }),
     listDynamicStats: protectedProcedure.input(z.object({
       monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional(),
       clientName: z.string().trim().optional(),

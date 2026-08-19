@@ -98,6 +98,10 @@
 - [x] Valider avec les tests unitaires Vitest et TypeScript
 - [x] Créer le checkpoint final de la version enrichie
 
-- [ ] Structurer les rubriques Statistiques et Budget Planner comme des sections autonomes avec des boutons d’accès et d’action dédiés à l’image de Devis & Factures
-- [ ] Vérifier la navigation responsive et exécuter les tests Vitest et TypeScript
-- [ ] Créer le checkpoint final de la présentation des rubriques
+- [x] Structurer les rubriques Statistiques et Budget Planner comme des sections autonomes avec des boutons d’accès et d’action dédiés à l’image de Devis & Factures
+- [x] Vérifier la navigation responsive et exécuter les tests Vitest et TypeScript
+- [x] Créer le checkpoint final de la présentation des rubriques
+
+- [ ] Gérer les données statistiques à partir des mouvements réels de comptabilité avec vues Sheet, Gantt et Eisenhower
+- [ ] Renforcer le Budget Planner avec un bouton explicite « Convertir en sortie de caisse » et la mise à jour automatique de la comptabilité
+- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
