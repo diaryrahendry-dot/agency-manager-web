@@ -13,6 +13,7 @@ import {
 import { and, eq, isNull, or } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
+import { PROJECT_TEMPLATE_KEYS } from "../shared/projectTemplates";
 
 function dateKey(value: string | Date | null | undefined) {
   if (!value) return "";
@@ -1567,8 +1568,12 @@ export const appRouter = router({
       name: z.string().trim().min(2, "Le nom du projet est obligatoire"),
       slug: z.string().trim().min(2).optional(),
       description: z.string().trim().optional(),
+      managementTemplate: z.enum(PROJECT_TEMPLATE_KEYS).default("agence_complete"),
+      defaultCurrency: z.enum(["EUR", "MGA"]).default("MGA"),
+      jurisdiction: z.enum(["fr", "mg"]).default("fr"),
       ownerUserId: z.number().int().positive().optional(),
       ownerRole: z.enum(["collaborateur", "superviseur", "admin"]).default("superviseur"),
+      activateForCreator: z.boolean().default(true),
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -1584,6 +1589,9 @@ export const appRouter = router({
         name: input.name,
         slug,
         description: input.description || null,
+        managementTemplate: input.managementTemplate,
+        defaultCurrency: input.defaultCurrency,
+        jurisdiction: input.jurisdiction,
         createdBy: ctx.user.id,
       } as any);
       const created = await database.select().from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
@@ -1591,7 +1599,10 @@ export const appRouter = router({
       if (project && input.ownerUserId) {
         await database.insert(projectMembers).values({ projectId: project.id, userId: input.ownerUserId, membershipRole: input.ownerRole } as any);
       }
-      return project ?? { success: true };
+      if (project && input.activateForCreator) {
+        await database.update(users).set({ activeProjectId: project.id } as any).where(eq(users.id, ctx.user.id));
+      }
+      return project ? { ...project, activatedForCreator: Boolean(input.activateForCreator) } : { success: true };
     }),
     updateProjectStatus: adminProcedure.input(z.object({
       projectId: z.number().int().positive(),

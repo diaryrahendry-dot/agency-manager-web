@@ -144,3 +144,15 @@
 - [x] Diagnostiquer l’erreur d’authentification dans les logs serveur et le flux OAuth
 - [x] Corriger le mappage d’utilisateur ou de session OAuth pour éviter tout blocage de connexion
 - [x] Valider la connexion avec les tests unitaires et un nouveau checkpoint
+- [x] Ajouter dans le backoffice un bouton « Nouveau projet » visible uniquement aux administrateurs
+- [x] Ajouter un formulaire de création avec nom, description, devise, juridiction et template de gestion
+- [x] Relier le template choisi à la création sécurisée du projet et à son activation immédiate
+- [x] Ajouter les tests Vitest du flux createProject avec templates et permissions
+- [x] Vérifier le rendu responsive du formulaire de nouveau projet et sauvegarder un checkpoint
+- [x] Ouvrir réellement l’onglet Paramètres puis le modal « Nouveau projet » et vérifier son rendu desktop/tablette/mobile
+- [x] Sauvegarder un nouveau checkpoint après validation finale du flux de création de projet par template
+- [x] Transmettre la devise et la juridiction du formulaire dans la mutation de création projet
+- [x] Ouvrir le modal « Nouveau projet » en session authentifiée sur tablette puis mobile et vérifier réellement son rendu, son scroll interne et l’accessibilité de ses actions
+- [x] Capturer ou consigner des preuves de la vérification responsive spécifique du modal « Nouveau projet » sur tablette et mobile avant de marquer cette tâche comme terminée
+- [ ] Sauvegarder un nouveau checkpoint après les modifications du backoffice projet, du template de gestion, de la devise/juridiction et les vérifications responsive authentifiées
+- [ ] Joindre dans le checkpoint la version exacte contenant le correctif de soumission defaultCurrency et jurisdiction pour que l’état livrable soit restaurable

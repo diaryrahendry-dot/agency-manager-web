@@ -26,6 +26,7 @@ import { DEFAULT_EUR_TO_MGA, convertEurToMga, convertMgaToEur, formatCurrency, f
 import { buildCommercialDocumentHtml, getCommercialTableColumnCount, type CommercialDocumentData } from "@shared/commercialDocuments";
 import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components/CommercialMGAColumns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { PROJECT_TEMPLATES, getProjectTemplate, type ProjectTemplateKey } from "@shared/projectTemplates";
 
 const WORKDAY_HOURS = 8;
 
@@ -252,7 +253,8 @@ export default function Home() {
   const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", currency: "EUR" as CurrencyCode, documentProfile: "fr" as "fr" | "mg", discountType: "none" as "none" | "percent" | "fixed", discountValue: "0", taxRate: "0", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
   const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", currency: "EUR" as CurrencyCode, documentProfile: "fr" as "fr" | "mg", discountType: "none" as "none" | "percent" | "fixed", discountValue: "0", taxRate: "0", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
   const [adminUserForm, setAdminUserForm] = useState({ name: "", email: "", role: "collaborateur" as "collaborateur" | "superviseur" | "admin" });
-  const [adminProjectForm, setAdminProjectForm] = useState({ name: "", slug: "", description: "", ownerUserId: "none", ownerRole: "superviseur" as "collaborateur" | "superviseur" | "admin" });
+  const [isAdminProjectOpen, setIsAdminProjectOpen] = useState(false);
+  const [adminProjectForm, setAdminProjectForm] = useState({ name: "", slug: "", description: "", managementTemplate: "agence_complete" as ProjectTemplateKey, defaultCurrency: "MGA" as CurrencyCode, jurisdiction: "fr" as "fr" | "mg", ownerUserId: "none", ownerRole: "superviseur" as "collaborateur" | "superviseur" | "admin" });
 
   const quoteTotals = calculateBillingTotals(quoteLines, quoteForm.discountType, quoteForm.discountValue, quoteForm.taxRate);
   const invoiceTotals = calculateBillingTotals(invoiceLines, invoiceForm.discountType, invoiceForm.discountValue, invoiceForm.taxRate);
@@ -344,10 +346,14 @@ export default function Home() {
     onError: (err) => toast.error("Impossible de réinitialiser l’invitation : " + err.message),
   });
   const createAdminProjectMutation = trpc.admin.createProject.useMutation({
-    onSuccess: () => {
-      toast.success("Projet créé dans le backoffice.");
-      setAdminProjectForm({ name: "", slug: "", description: "", ownerUserId: "none", ownerRole: "superviseur" });
+    onSuccess: (project) => {
+      toast.success("Projet créé et activé dans le backoffice.");
+      setAdminProjectForm({ name: "", slug: "", description: "", managementTemplate: "agence_complete", defaultCurrency: "MGA", jurisdiction: "fr", ownerUserId: "none", ownerRole: "superviseur" });
+      setIsAdminProjectOpen(false);
+      if ("id" in project && typeof project.id === "number") setActiveProjectId(project.id);
       utils.admin.listProjects.invalidate();
+      utils.projects.mine.invalidate();
+      utils.preferences.get.invalidate();
     },
     onError: (err) => toast.error("Création du projet impossible : " + err.message),
   });
@@ -2221,20 +2227,56 @@ export default function Home() {
             </div>
 
             {isAdmin && <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><FolderPlus className="h-5 w-5 text-emerald-600" /> Backoffice projets</CardTitle>
-                <CardDescription>Initialisez un nouvel espace projet et rattachez immédiatement un compte responsable.</CardDescription>
+              <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><FolderPlus className="h-5 w-5 text-emerald-600" /> Backoffice projets</CardTitle>
+                  <CardDescription>Créez un espace de gestion avec un modèle adapté à son activité.</CardDescription>
+                </div>
+                <Dialog open={isAdminProjectOpen} onOpenChange={setIsAdminProjectOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-500"><FolderPlus className="mr-2 h-4 w-4" /> Nouveau projet</Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto rounded-2xl bg-white">
+                    <DialogHeader>
+                      <DialogTitle>Créer un nouveau projet</DialogTitle>
+                      <DialogDescription>Choisissez un template de gestion : les données resteront isolées dans cet espace projet.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-5 py-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5"><Label>Nom du projet</Label><Input value={adminProjectForm.name} onChange={event => setAdminProjectForm(current => ({ ...current, name: event.target.value }))} placeholder="Nouveau projet client" autoFocus /></div>
+                        <div className="space-y-1.5"><Label>Slug (optionnel)</Label><Input value={adminProjectForm.slug} onChange={event => setAdminProjectForm(current => ({ ...current, slug: event.target.value }))} placeholder="projet-client" /></div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5"><Label>Devise principale</Label><Select value={adminProjectForm.defaultCurrency} onValueChange={value => setAdminProjectForm(current => ({ ...current, defaultCurrency: value as CurrencyCode }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select><p className="text-xs text-slate-500">Utilisée par défaut dans la comptabilité et les documents.</p></div>
+                        <div className="space-y-1.5"><Label>Juridiction documentaire</Label><Select value={adminProjectForm.jurisdiction} onValueChange={value => setAdminProjectForm(current => ({ ...current, jurisdiction: value as typeof current.jurisdiction }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fr">France — normes françaises</SelectItem><SelectItem value="mg">Madagascar — normes malgaches</SelectItem></SelectContent></Select><p className="text-xs text-slate-500">Prépare les mentions légales des devis et factures.</p></div>
+                      </div>
+                      <div className="space-y-2">
+                        <div><Label>Template de gestion</Label><p className="mt-1 text-xs text-slate-500">Le template prépare l’espace avec les modules adaptés. Vous pourrez toujours utiliser le périmètre complet de l’agence.</p></div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {PROJECT_TEMPLATES.map(template => {
+                            const selected = adminProjectForm.managementTemplate === template.key;
+                            return <button key={template.key} type="button" aria-pressed={selected} onClick={() => setAdminProjectForm(current => ({ ...current, managementTemplate: template.key }))} className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400 ${template.accentClassName} ${selected ? "ring-2 ring-indigo-500 ring-offset-2" : ""}`}>
+                              <div className="flex items-start justify-between gap-3"><span className="font-semibold text-slate-900">{template.label}</span>{selected && <CheckCircle className="h-5 w-5 shrink-0 text-indigo-600" />}</div>
+                              <p className="mt-2 text-sm font-medium text-slate-700">{template.shortDescription}</p>
+                              <p className="mt-2 text-xs leading-5 text-slate-600">{template.description}</p>
+                              <div className="mt-3 flex flex-wrap gap-1.5">{template.modules.map(module => <Badge key={module} variant="outline" className="border-white/80 bg-white/70 text-[11px]">{module}</Badge>)}</div>
+                            </button>;
+                          })}
+                        </div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5"><Label>Compte responsable</Label><Select value={adminProjectForm.ownerUserId} onValueChange={value => setAdminProjectForm(current => ({ ...current, ownerUserId: value }))}><SelectTrigger><SelectValue placeholder="Choisir un compte" /></SelectTrigger><SelectContent><SelectItem value="none">Aucun pour l’instant</SelectItem>{adminUsersQuery.data?.map(account => <SelectItem key={account.id} value={String(account.id)}>{account.name || account.email || `Compte #${account.id}`}</SelectItem>)}</SelectContent></Select></div>
+                        <div className="space-y-1.5"><Label>Accès initial</Label><Select value={adminProjectForm.ownerRole} onValueChange={value => setAdminProjectForm(current => ({ ...current, ownerRole: value as typeof current.ownerRole }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="collaborateur">Collaborateur</SelectItem><SelectItem value="superviseur">Superviseur</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select></div>
+                      </div>
+                      <div className="space-y-1.5"><Label>Description</Label><Textarea value={adminProjectForm.description} onChange={event => setAdminProjectForm(current => ({ ...current, description: event.target.value }))} placeholder="Objectif, périmètre et informations de suivi du projet" /></div>
+                      <div className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 text-sm text-indigo-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" /><p>Après création, ce projet deviendra automatiquement votre projet actif afin que les modules affichent immédiatement son périmètre.</p></div>
+                    </div>
+                    <DialogFooter><Button variant="outline" onClick={() => setIsAdminProjectOpen(false)}>Annuler</Button><Button className="bg-emerald-600 text-white hover:bg-emerald-500" disabled={createAdminProjectMutation.isPending || !adminProjectForm.name.trim()} onClick={() => createAdminProjectMutation.mutate({ name: adminProjectForm.name.trim(), slug: adminProjectForm.slug.trim() || undefined, description: adminProjectForm.description.trim() || undefined, managementTemplate: adminProjectForm.managementTemplate, defaultCurrency: adminProjectForm.defaultCurrency, jurisdiction: adminProjectForm.jurisdiction, ownerUserId: adminProjectForm.ownerUserId === "none" ? undefined : Number(adminProjectForm.ownerUserId), ownerRole: adminProjectForm.ownerRole, activateForCreator: true })}>{createAdminProjectMutation.isPending ? "Création…" : "Créer et ouvrir le projet"}</Button></DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </CardHeader>
               <CardContent className="space-y-5">
-                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                  <div className="space-y-1.5"><Label>Nom du projet</Label><Input value={adminProjectForm.name} onChange={event => setAdminProjectForm(current => ({ ...current, name: event.target.value }))} placeholder="Nouveau projet client" /></div>
-                  <div className="space-y-1.5"><Label>Slug (optionnel)</Label><Input value={adminProjectForm.slug} onChange={event => setAdminProjectForm(current => ({ ...current, slug: event.target.value }))} placeholder="projet-client" /></div>
-                  <div className="space-y-1.5"><Label>Compte responsable</Label><Select value={adminProjectForm.ownerUserId} onValueChange={value => setAdminProjectForm(current => ({ ...current, ownerUserId: value }))}><SelectTrigger><SelectValue placeholder="Choisir un compte" /></SelectTrigger><SelectContent><SelectItem value="none">Aucun pour l’instant</SelectItem>{adminUsersQuery.data?.map(account => <SelectItem key={account.id} value={String(account.id)}>{account.name || account.email || `Compte #${account.id}`}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-1.5"><Label>Accès initial</Label><Select value={adminProjectForm.ownerRole} onValueChange={value => setAdminProjectForm(current => ({ ...current, ownerRole: value as typeof current.ownerRole }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="collaborateur">Collaborateur</SelectItem><SelectItem value="superviseur">Superviseur</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select></div>
-                </div>
-                <div className="space-y-1.5"><Label>Description</Label><Textarea value={adminProjectForm.description} onChange={event => setAdminProjectForm(current => ({ ...current, description: event.target.value }))} placeholder="Objectif, périmètre et informations de suivi du projet" /></div>
-                <Button className="bg-emerald-600 hover:bg-emerald-500" disabled={createAdminProjectMutation.isPending || !adminProjectForm.name.trim()} onClick={() => createAdminProjectMutation.mutate({ name: adminProjectForm.name.trim(), slug: adminProjectForm.slug.trim() || undefined, description: adminProjectForm.description.trim() || undefined, ownerUserId: adminProjectForm.ownerUserId === "none" ? undefined : Number(adminProjectForm.ownerUserId), ownerRole: adminProjectForm.ownerRole })}><FolderPlus className="mr-2 h-4 w-4" /> Créer le projet</Button>
-                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{adminProjectsQuery.data?.map(project => <div key={project.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-900">{project.name}</p><p className="text-xs text-slate-500">/{project.slug}</p></div><Badge variant={project.status === "actif" ? "default" : "secondary"}>{project.status}</Badge></div><p className="mt-3 line-clamp-2 text-sm text-slate-500">{project.description || "Aucune description"}</p><Button variant="outline" size="sm" className="mt-4" disabled={updateAdminProjectStatusMutation.isPending} onClick={() => updateAdminProjectStatusMutation.mutate({ projectId: project.id, status: project.status === "actif" ? "archive" : "actif" })}>{project.status === "actif" ? "Archiver" : "Réactiver"}</Button></div>)}{(!adminProjectsQuery.data || adminProjectsQuery.data.length === 0) && <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 md:col-span-2 lg:col-span-3">Aucun projet créé. Utilisez le formulaire ci-dessus pour initialiser votre premier espace.</div>}</div>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{adminProjectsQuery.data?.map(project => { const template = getProjectTemplate(project.managementTemplate as ProjectTemplateKey); return <div key={project.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-slate-900">{project.name}</p><p className="text-xs text-slate-500">/{project.slug}</p></div><Badge variant={project.status === "actif" ? "default" : "secondary"}>{project.status}</Badge></div><div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{template.label}</Badge><Badge variant="outline">{project.defaultCurrency}</Badge><Badge variant="outline">{project.jurisdiction === "mg" ? "MG" : "FR"}</Badge></div><p className="mt-3 line-clamp-2 text-sm text-slate-500">{project.description || template.shortDescription}</p><Button variant="outline" size="sm" className="mt-4" disabled={updateAdminProjectStatusMutation.isPending} onClick={() => updateAdminProjectStatusMutation.mutate({ projectId: project.id, status: project.status === "actif" ? "archive" : "actif" })}>{project.status === "actif" ? "Archiver" : "Réactiver"}</Button></div>; })}{(!adminProjectsQuery.data || adminProjectsQuery.data.length === 0) && <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 md:col-span-2 lg:col-span-3">Aucun projet créé. Cliquez sur « Nouveau projet » pour initialiser votre premier espace.</div>}</div>
               </CardContent>
             </Card>}
           </TabsContent>

@@ -1,0 +1,1 @@
+ALTER TABLE `agency_projects` ADD `managementTemplate` enum('agence_complete','studio_creatif','prestations_rh') DEFAULT 'agence_complete' NOT NULL;

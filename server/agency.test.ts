@@ -347,4 +347,19 @@ describe("Chemins de succès admin et transitions métier", () => {
     await expect(withFakeDb([[]], async () => caller.billing.updateCatalogItem({ id: 9, itemType: "prestation", label: "Service", description: "", unit: "forfait", unitPrice: "100", currency: "EUR", pricingMode: "ponctuel", taxRate: "0", clientVisible: true, status: "actif" }))).rejects.toThrow("Article catalogue introuvable");
     await expect(withFakeDb([[]], async () => caller.hr.updateTimeEntry({ id: 9, date: "2026-08-19", hoursWorked: "8", status: "présent", notes: "" }))).rejects.toThrow("Pointage introuvable");
   });
+
+  it("crée un projet avec le template choisi et l’active pour son administrateur", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    const created = await withFakeDb([
+      [],
+      [{ id: 7 }],
+      [{ id: 55, name: "Studio Nova", slug: "studio-nova", managementTemplate: "studio_creatif", defaultCurrency: "EUR", jurisdiction: "mg", status: "actif" }],
+    ], async (database) => {
+      const result = await caller.admin.createProject({ name: "Studio Nova", managementTemplate: "studio_creatif", defaultCurrency: "EUR", jurisdiction: "mg", ownerUserId: 7, ownerRole: "superviseur" });
+      expect(database.insert).toHaveBeenCalledTimes(2);
+      expect(database.update).toHaveBeenCalledTimes(1);
+      return result;
+    });
+    expect(created).toMatchObject({ id: 55, managementTemplate: "studio_creatif", defaultCurrency: "EUR", jurisdiction: "mg", activatedForCreator: true });
+  });
 });

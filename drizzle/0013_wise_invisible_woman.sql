@@ -1,0 +1,2 @@
+ALTER TABLE `agency_projects` ADD `defaultCurrency` enum('EUR','MGA') DEFAULT 'MGA' NOT NULL;--> statement-breakpoint
+ALTER TABLE `agency_projects` ADD `jurisdiction` enum('fr','mg') DEFAULT 'fr' NOT NULL;
