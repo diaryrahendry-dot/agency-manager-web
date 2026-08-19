@@ -114,3 +114,30 @@
 - [x] Intégrer le catalogue dans la création des devis et factures
 - [x] Mettre à jour la section devis et factures pour respecter les normes françaises et malgaches (mentions obligatoires, remises par produit ou sur le total, gestion de la TVA)
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Ajouter les boutons Annuler et Confirmer pour les devis et factures en brouillon avec changement de statut contrôlé
+- [x] Améliorer l’interface de création de facture avec résumé des totaux, progression et actions explicites
+- [x] Créer le menu Paramètres avec espace profil, préférences et administration
+- [x] Étendre les rôles utilisateurs à collaborateur, superviseur et admin avec permissions serveur
+- [x] Permettre aux admins de créer des comptes, définir les rôles et modifier les accès
+- [x] Créer le backoffice admin pour initialiser un nouveau projet et rattacher les comptes
+- [x] Ajouter les tests Vitest des permissions, des transitions de brouillon et des procédures admin
+- [x] Valider TypeScript, build, responsive et créer un checkpoint final
+- [x] Permettre de supprimer une ligne pendant la création d’un devis et la création ou modification d’une facture, avec garde-fou sur la dernière ligne
+- [x] Implémenter des préférences utilisateur persistantes dans Paramètres, notamment devise et affichage
+- [x] Appliquer des permissions serveur différenciées entre collaborateur, superviseur et admin sur des procédures métier concrètes
+- [x] Ajouter un flux d’activation de compte administré avec statut d’invitation et rattachement au compte OAuth
+- [x] Rendre le multi-projets exploitable avec sélection de projet active et scoping des données principales
+- [x] Étendre les tests aux procédures admin clés et aux transitions métier complètes brouillon vers confirmé ou annulé
+- [x] Vérifier les vues desktop, tablette et mobile puis sauvegarder un checkpoint final après ces corrections
+- [x] Appliquer le scoping projectId à toutes les mutations par identifiant des modules principaux et ajouter des tests d’isolement inter-projets
+- [x] Ajouter des tests Vitest de succès et d’échec pour createProject, assign/removeProjectMember, resendInvitation, preferences et projects.setActive
+- [x] Ajouter des tests des transitions valides et invalides des devis et factures brouillon vers confirmé ou annulé
+- [x] Effectuer une vérification responsive tablette en plus du desktop et mobile
+- [ ] Sauvegarder un checkpoint final après ces corrections de sécurité et de couverture
+- [x] Ajouter des tests d’isolement inter-projets couvrant CRM, RH, comptabilité et facturation
+- [x] Compléter la revue et le scoping des mutations par identifiant restantes des modules principaux
+- [x] Ajouter les tests succès/échec de preferences.update pour la devise, l’affichage MGA et le projet actif non autorisé
+- [x] Compléter la matrice des transitions brouillon devis/factures : confirmer et annuler en succès, refus hors brouillon
+- [x] Ajouter un test de succès pour confirmInvoiceDraft sur une facture en brouillon
+- [x] Ajouter les refus hors brouillon pour confirmQuoteDraft et cancelQuoteDraft

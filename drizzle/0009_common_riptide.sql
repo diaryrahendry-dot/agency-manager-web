@@ -1,0 +1,1 @@
+ALTER TABLE `quotes` MODIFY COLUMN `status` enum('brouillon','envoyé','accepté','refusé','annulé','facturé') NOT NULL DEFAULT 'brouillon';

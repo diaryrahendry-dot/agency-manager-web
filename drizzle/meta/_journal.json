@@ -57,6 +57,34 @@
       "when": 1787140868367,
       "tag": "0007_chemical_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1787142329764,
+      "tag": "0008_gorgeous_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1787142663224,
+      "tag": "0009_common_riptide",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1787143062681,
+      "tag": "0010_little_supernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1787143420582,
+      "tag": "0011_smart_venus",
+      "breakpoints": true
     }
   ]
 }

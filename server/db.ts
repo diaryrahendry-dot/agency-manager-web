@@ -1,4 +1,4 @@
-import { eq, desc, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users, agents, timeEntries, leaves, salaryAdvances, contracts, 
@@ -33,6 +33,23 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
+    if (user.email) {
+      const invited = await db.select().from(users).where(and(eq(users.email, user.email), eq(users.accountStatus, "invited"))).limit(1);
+      if (invited[0] && invited[0].openId !== user.openId) {
+        const activationSet: Record<string, unknown> = {
+          openId: user.openId,
+          name: user.name ?? invited[0].name,
+          email: user.email,
+          loginMethod: user.loginMethod ?? invited[0].loginMethod,
+          accountStatus: "active",
+          invitationToken: null,
+          lastSignedIn: user.lastSignedIn ?? new Date(),
+        };
+        await db.update(users).set(activationSet as any).where(eq(users.id, invited[0].id));
+        return;
+      }
+    }
+
     const values: InsertUser = {
       openId: user.openId,
     };
@@ -88,9 +105,10 @@ export async function getUserByOpenId(openId: string) {
 }
 
 // Helpers RH
-export async function getAgents() {
+export async function getAgents(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(agents).where(or(eq(agents.projectId, projectId), isNull(agents.projectId))).orderBy(desc(agents.id));
   return db.select().from(agents).orderBy(desc(agents.id));
 }
 
@@ -135,23 +153,26 @@ export async function getTickets() {
 }
 
 // Helpers Compta
-export async function getCashTransactions() {
+export async function getCashTransactions(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(cashTransactions).where(or(eq(cashTransactions.projectId, projectId), isNull(cashTransactions.projectId))).orderBy(desc(cashTransactions.date));
   return db.select().from(cashTransactions).orderBy(desc(cashTransactions.date));
 }
 
 // Helpers CRM Leads
-export async function getLeads() {
+export async function getLeads(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(leads).where(or(eq(leads.projectId, projectId), isNull(leads.projectId))).orderBy(desc(leads.id));
   return db.select().from(leads).orderBy(desc(leads.id));
 }
 
 // Helpers Clients
-export async function getClients() {
+export async function getClients(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(clients).where(or(eq(clients.projectId, projectId), isNull(clients.projectId))).orderBy(desc(clients.id));
   return db.select().from(clients).orderBy(desc(clients.id));
 }
 
@@ -171,20 +192,23 @@ export async function getDocuments(entityId?: number, category?: string) {
 }
 
 // Helpers Facturation & Devis
-export async function getQuotes() {
+export async function getQuotes(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(quotes).where(or(eq(quotes.projectId, projectId), isNull(quotes.projectId))).orderBy(desc(quotes.id));
   return db.select().from(quotes).orderBy(desc(quotes.id));
 }
 
-export async function getInvoices() {
+export async function getInvoices(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(invoices).where(or(eq(invoices.projectId, projectId), isNull(invoices.projectId))).orderBy(desc(invoices.id));
   return db.select().from(invoices).orderBy(desc(invoices.id));
 }
 
-export async function getCatalogItems() {
+export async function getCatalogItems(projectId?: number | null) {
   const db = await getDb();
   if (!db) return [];
+  if (projectId) return db.select().from(catalogItems).where(or(eq(catalogItems.projectId, projectId), isNull(catalogItems.projectId))).orderBy(desc(catalogItems.id));
   return db.select().from(catalogItems).orderBy(desc(catalogItems.id));
 }

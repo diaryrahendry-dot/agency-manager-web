@@ -1,15 +1,16 @@
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { randomUUID } from "node:crypto";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router, supervisorProcedure } from "./_core/trpc";
 import { COOKIE_NAME } from "@shared/const";
 import * as db from "./db";
 import { 
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices, catalogItems, dynamicStats, budgetSheets 
+  quotes, invoices, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers 
 } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
 
@@ -21,6 +22,9 @@ function dateKey(value: string | Date | null | undefined) {
 function amountOf(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
+}
+function projectScope(column: any, projectId?: number | null) {
+  return projectId ? or(eq(column, projectId), isNull(column)) : isNull(column);
 }
 
 function invoiceServiceNames(itemsJson: string) {
@@ -115,10 +119,10 @@ export const appRouter = router({
 
   // Module RH
   hr: router({
-    listAgents: protectedProcedure.query(async () => {
-      return await db.getAgents();
+    listAgents: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getAgents(ctx.user.activeProjectId);
     }),
-    createAgent: protectedProcedure.input(z.object({
+    createAgent: supervisorProcedure.input(z.object({
       name: z.string().trim().min(1, "Le nom est obligatoire"),
       email: z.string().trim().email("L’email professionnel est invalide"),
       phone: z.string().trim().optional(),
@@ -130,11 +134,12 @@ export const appRouter = router({
       address: z.string().trim().optional(),
       emergencyContact: z.string().trim().optional(),
       notes: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       try {
         await database.insert(agents).values({
+          projectId: ctx.user.activeProjectId,
           name: input.name,
           email: input.email,
           phone: input.phone || null,
@@ -153,7 +158,7 @@ export const appRouter = router({
         throw new Error("Impossible d’enregistrer cet employé. Vérifiez les informations saisies et réessayez.");
       }
     }),
-    updateAgent: protectedProcedure.input(z.object({
+    updateAgent: supervisorProcedure.input(z.object({
       id: z.number().int().positive(),
       name: z.string().trim().min(1, "Le nom est obligatoire"),
       email: z.string().trim().email("L’email professionnel est invalide"),
@@ -166,10 +171,10 @@ export const appRouter = router({
       address: z.string().trim().optional(),
       emergencyContact: z.string().trim().optional(),
       notes: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).limit(1);
+      const existing = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Agent introuvable");
       await database.update(agents).set({
         name: input.name,
@@ -183,15 +188,15 @@ export const appRouter = router({
         address: input.address || null,
         emergencyContact: input.emergencyContact || null,
         notes: input.notes || null,
-      } as any).where(eq(agents.id, input.id));
+      } as any).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-    deleteAgent: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    deleteAgent: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).limit(1);
+      const existing = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Agent introuvable");
-      await database.delete(agents).where(eq(agents.id, input.id));
+      await database.delete(agents).where(and(eq(agents.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
 
@@ -204,10 +209,10 @@ export const appRouter = router({
       hoursWorked: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24, "Les heures doivent être comprises entre 0 et 24"),
       status: z.enum(["présent", "absent", "retard", "congé"]),
       notes: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const agent = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.agentId)).limit(1);
+      const agent = await database.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.agentId), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (agent.length === 0) throw new Error("Agent introuvable");
       await database.insert(timeEntries).values({
         agentId: input.agentId,
@@ -224,18 +229,18 @@ export const appRouter = router({
       hoursWorked: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24, "Les heures doivent être comprises entre 0 et 24"),
       status: z.enum(["présent", "absent", "retard", "congé"]),
       notes: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).where(eq(timeEntries.id, input.id)).limit(1);
+      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Pointage introuvable");
       await database.update(timeEntries).set({ date: input.date, hoursWorked: input.hoursWorked, status: input.status, notes: input.notes || null } as any).where(eq(timeEntries.id, input.id));
       return { success: true };
     }),
-    deleteTimeEntry: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    deleteTimeEntry: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).where(eq(timeEntries.id, input.id)).limit(1);
+      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).innerJoin(agents, eq(timeEntries.agentId, agents.id)).where(and(eq(timeEntries.id, input.id), projectScope(agents.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Pointage introuvable");
       await database.delete(timeEntries).where(eq(timeEntries.id, input.id));
       return { success: true };
@@ -264,7 +269,7 @@ export const appRouter = router({
       } as any);
       return { success: true };
     }),
-    updateLeaveStatus: protectedProcedure.input(z.object({
+    updateLeaveStatus: supervisorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["en_attente", "approuvé", "refusé"]),
     })).mutation(async ({ input }) => {
@@ -318,7 +323,7 @@ export const appRouter = router({
       } as any);
       return { success: true };
     }),
-    updateSalaryAdvanceStatus: protectedProcedure.input(z.object({
+    updateSalaryAdvanceStatus: supervisorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["demandé", "accordé", "déduit", "refusé"]),
     })).mutation(async ({ input }) => {
@@ -331,7 +336,7 @@ export const appRouter = router({
     listContracts: protectedProcedure.query(async () => {
       return await db.getContracts();
     }),
-    createContract: protectedProcedure.input(z.object({
+    createContract: supervisorProcedure.input(z.object({
       agentId: z.number(),
       title: z.string(),
       contractType: z.string(),
@@ -390,10 +395,10 @@ export const appRouter = router({
 
   // Module Comptabilité
   accounting: router({
-    listTransactions: protectedProcedure.query(async () => {
-      return await db.getCashTransactions();
+    listTransactions: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getCashTransactions(ctx.user.activeProjectId);
     }),
-    createTransaction: protectedProcedure.input(z.object({
+    createTransaction: supervisorProcedure.input(z.object({
       type: z.enum(["entrée", "sortie"]),
       category: z.string().trim().min(1),
       amount: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le montant est invalide"),
@@ -406,11 +411,12 @@ export const appRouter = router({
       attachedUrl: z.string().optional(),
       attachedKey: z.string().optional(),
       internalNote: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       const normalized = normalizeCurrencyAmount(input.amount, input.currency, input.exchangeRate);
       await database.insert(cashTransactions).values({
+        projectId: ctx.user.activeProjectId,
         type: input.type,
         category: input.category,
         ...normalized,
@@ -424,7 +430,7 @@ export const appRouter = router({
       } as any);
       return { success: true, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
-    updateTransaction: protectedProcedure.input(z.object({
+    updateTransaction: supervisorProcedure.input(z.object({
       id: z.number().int().positive(),
       type: z.enum(["entrée", "sortie"]),
       category: z.string().trim().min(1),
@@ -436,10 +442,10 @@ export const appRouter = router({
       reference: z.string().trim().optional(),
       description: z.string().trim().min(1),
       internalNote: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select({ id: cashTransactions.id }).from(cashTransactions).where(eq(cashTransactions.id, input.id)).limit(1);
+      const existing = await database.select({ id: cashTransactions.id }).from(cashTransactions).where(and(eq(cashTransactions.id, input.id), projectScope(cashTransactions.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Mouvement introuvable");
       const normalized = normalizeCurrencyAmount(input.amount, input.currency, input.exchangeRate);
       await database.update(cashTransactions).set({
@@ -451,7 +457,7 @@ export const appRouter = router({
         reference: input.reference || null,
         description: input.description,
         internalNote: input.internalNote || null,
-      } as any).where(eq(cashTransactions.id, input.id));
+      } as any).where(and(eq(cashTransactions.id, input.id), projectScope(cashTransactions.projectId, ctx.user.activeProjectId)));
       return { success: true, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
     convertQuoteToTransaction: protectedProcedure.input(z.object({
@@ -459,14 +465,14 @@ export const appRouter = router({
       currency: z.enum(["EUR", "MGA"]).default("EUR"),
       exchangeRate: z.string().trim().optional(),
       paymentMethod: z.string().trim().min(1).default("À encaisser"),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const quoteRows = await database.select().from(quotes).where(eq(quotes.id, input.quoteId)).limit(1);
+      const quoteRows = await database.select().from(quotes).where(and(eq(quotes.id, input.quoteId), projectScope(quotes.projectId, ctx.user.activeProjectId))).limit(1);
       const quote = quoteRows[0];
       if (!quote) throw new Error("Devis introuvable");
       if (quote.status === "facturé") throw new Error("Ce devis est déjà présent dans la comptabilité");
-      const existingTransactions = await db.getCashTransactions();
+      const existingTransactions = await db.getCashTransactions(ctx.user.activeProjectId);
       if (existingTransactions.some(transaction => transaction.reference === quote.quoteNumber)) {
         throw new Error("Ce devis possède déjà un mouvement comptable associé");
       }
@@ -474,6 +480,7 @@ export const appRouter = router({
       const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(quote.totalAmount), Number(rate))) : String(quote.totalAmount);
       const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
       await database.insert(cashTransactions).values({
+        projectId: ctx.user.activeProjectId,
         type: "entrée",
         category: "Vente / Devis",
         ...normalized,
@@ -482,7 +489,7 @@ export const appRouter = router({
         reference: quote.quoteNumber,
         description: `Conversion du ${quote.quoteNumber} en entrée comptable`,
       } as any);
-      await database.update(quotes).set({ status: "facturé" }).where(eq(quotes.id, input.quoteId));
+      await database.update(quotes).set({ status: "facturé" }).where(and(eq(quotes.id, input.quoteId), projectScope(quotes.projectId, ctx.user.activeProjectId)));
       return { success: true, quoteNumber: quote.quoteNumber, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
     convertPaidInvoiceToTransaction: protectedProcedure.input(z.object({
@@ -490,14 +497,14 @@ export const appRouter = router({
       currency: z.enum(["EUR", "MGA"]).default("MGA"),
       exchangeRate: z.string().trim().optional(),
       paymentMethod: z.string().trim().min(1).default("Virement"),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const invoiceRows = await database.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      const invoiceRows = await database.select().from(invoices).where(and(eq(invoices.id, input.invoiceId), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
       const invoice = invoiceRows[0];
       if (!invoice) throw new Error("Facture introuvable");
       if (invoice.status !== "payée") throw new Error("Seules les factures au statut payée peuvent être converties en caisse");
-      const existingTransactions = await db.getCashTransactions();
+      const existingTransactions = await db.getCashTransactions(ctx.user.activeProjectId);
       if (existingTransactions.some(transaction => transaction.reference === invoice.invoiceNumber)) {
         throw new Error("Cette facture possède déjà une entrée de caisse associée");
       }
@@ -505,6 +512,7 @@ export const appRouter = router({
       const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(invoice.totalAmount), Number(rate))) : String(invoice.totalAmount);
       const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
       await database.insert(cashTransactions).values({
+        projectId: ctx.user.activeProjectId,
         type: "entrée",
         category: "Facture payée",
         ...normalized,
@@ -1037,8 +1045,8 @@ export const appRouter = router({
 
   // Module CRM Leads
   crm: router({
-    listLeads: protectedProcedure.query(async () => {
-      return await db.getLeads();
+    listLeads: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getLeads(ctx.user.activeProjectId);
     }),
     createLead: protectedProcedure.input(z.object({
       companyName: z.string(),
@@ -1050,10 +1058,11 @@ export const appRouter = router({
       status: z.enum(["nouveau", "contacté", "proposition", "negociation", "gagne", "perdu"]),
       nextContactDate: z.string().optional(),
       notes: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       await database.insert(leads).values({
+        projectId: ctx.user.activeProjectId,
         companyName: input.companyName,
         contactName: input.contactName,
         email: input.email,
@@ -1069,10 +1078,12 @@ export const appRouter = router({
     updateLeadStatus: protectedProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["nouveau", "contacté", "proposition", "negociation", "gagne", "perdu"]),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.update(leads).set({ status: input.status }).where(eq(leads.id, input.id));
+      const existing = await database.select({ id: leads.id }).from(leads).where(and(eq(leads.id, input.id), projectScope(leads.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Lead introuvable");
+      await database.update(leads).set({ status: input.status }).where(and(eq(leads.id, input.id), projectScope(leads.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
     updateLead: protectedProcedure.input(z.object({
@@ -1086,9 +1097,11 @@ export const appRouter = router({
       status: z.enum(["nouveau", "contacté", "proposition", "negociation", "gagne", "perdu"]),
       nextContactDate: z.string().optional(),
       notes: z.string().trim().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: leads.id }).from(leads).where(and(eq(leads.id, input.id), projectScope(leads.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Lead introuvable");
       await database.update(leads).set({
         companyName: input.companyName,
         contactName: input.contactName,
@@ -1099,20 +1112,21 @@ export const appRouter = router({
         status: input.status,
         nextContactDate: input.nextContactDate || null,
         notes: input.notes || null,
-      } as any).where(eq(leads.id, input.id));
+      } as any).where(and(eq(leads.id, input.id), projectScope(leads.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
     convertLeadToClient: protectedProcedure.input(z.object({
       leadId: z.number(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       
-      const leadRes = await database.select().from(leads).where(eq(leads.id, input.leadId)).limit(1);
+      const leadRes = await database.select().from(leads).where(and(eq(leads.id, input.leadId), projectScope(leads.projectId, ctx.user.activeProjectId))).limit(1);
       if (leadRes.length === 0) throw new Error("Lead introuvable");
       const lead = leadRes[0];
 
       await database.insert(clients).values({
+        projectId: ctx.user.activeProjectId ?? lead.projectId,
         companyName: lead.companyName,
         contactName: lead.contactName,
         email: lead.email,
@@ -1122,7 +1136,7 @@ export const appRouter = router({
         status: "actif",
       });
 
-      await database.update(leads).set({ status: "gagne" }).where(eq(leads.id, input.leadId));
+      await database.update(leads).set({ status: "gagne" }).where(and(eq(leads.id, input.leadId), projectScope(leads.projectId, ctx.user.activeProjectId)));
 
       return { success: true };
     }),
@@ -1130,8 +1144,8 @@ export const appRouter = router({
 
   // Module Base Clients & Documents
   clientsModule: router({
-    listClients: protectedProcedure.query(async () => {
-      return await db.getClients();
+    listClients: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getClients(ctx.user.activeProjectId);
     }),
     createClient: protectedProcedure.input(z.object({
       companyName: z.string(),
@@ -1142,10 +1156,11 @@ export const appRouter = router({
       industry: z.string().optional(),
       category: z.string(),
       notes: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       await database.insert(clients).values({
+        projectId: ctx.user.activeProjectId,
         companyName: input.companyName,
         contactName: input.contactName,
         email: input.email,
@@ -1211,10 +1226,10 @@ export const appRouter = router({
 
   // Module Facturation et Devis
   billing: router({
-    listCatalogItems: protectedProcedure.query(async () => {
-      return await db.getCatalogItems();
+    listCatalogItems: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getCatalogItems(ctx.user.activeProjectId);
     }),
-    createCatalogItem: protectedProcedure.input(z.object({
+    createCatalogItem: supervisorProcedure.input(z.object({
       itemType: z.enum(["produit", "prestation"]).default("prestation"),
       label: z.string().trim().min(1, "Le libellé est obligatoire"),
       description: z.string().optional(),
@@ -1224,12 +1239,13 @@ export const appRouter = router({
       pricingMode: z.enum(["ponctuel", "récurrent", "mensuel"]).default("ponctuel"),
       taxRate: z.string().trim().default("0"),
       clientVisible: z.boolean().default(true),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       const price = amountOf(input.unitPrice);
       if (price < 0) throw new Error("Le tarif ne peut pas être négatif");
       await database.insert(catalogItems).values({
+        projectId: ctx.user.activeProjectId,
         itemType: input.itemType,
         label: input.label,
         description: input.description || null,
@@ -1243,7 +1259,7 @@ export const appRouter = router({
       });
       return { success: true };
     }),
-    updateCatalogItem: protectedProcedure.input(z.object({
+    updateCatalogItem: supervisorProcedure.input(z.object({
       id: z.number().int().positive(),
       itemType: z.enum(["produit", "prestation"]),
       label: z.string().trim().min(1),
@@ -1255,9 +1271,11 @@ export const appRouter = router({
       taxRate: z.string().trim().default("0"),
       clientVisible: z.boolean().default(true),
       status: z.enum(["actif", "inactif"]).default("actif"),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: catalogItems.id }).from(catalogItems).where(and(eq(catalogItems.id, input.id), projectScope(catalogItems.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Article catalogue introuvable");
       await database.update(catalogItems).set({
         itemType: input.itemType,
         label: input.label,
@@ -1269,19 +1287,21 @@ export const appRouter = router({
         taxRate: Math.max(0, amountOf(input.taxRate)).toFixed(2),
         clientVisible: input.clientVisible ? 1 : 0,
         status: input.status,
-      }).where(eq(catalogItems.id, input.id));
+      }).where(and(eq(catalogItems.id, input.id), projectScope(catalogItems.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-    archiveCatalogItem: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    archiveCatalogItem: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.update(catalogItems).set({ status: "inactif" }).where(eq(catalogItems.id, input.id));
+      const existing = await database.select({ id: catalogItems.id }).from(catalogItems).where(and(eq(catalogItems.id, input.id), projectScope(catalogItems.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Article catalogue introuvable");
+      await database.update(catalogItems).set({ status: "inactif" }).where(and(eq(catalogItems.id, input.id), projectScope(catalogItems.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-    listQuotes: protectedProcedure.query(async () => {
-      return await db.getQuotes();
+    listQuotes: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getQuotes(ctx.user.activeProjectId);
     }),
-    createQuote: protectedProcedure.input(z.object({
+    createQuote: supervisorProcedure.input(z.object({
       quoteNumber: z.string().trim().min(1),
       clientId: z.number().int().positive(),
       issueDate: z.string().trim().min(1),
@@ -1294,11 +1314,12 @@ export const appRouter = router({
       taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
       await database.insert(quotes).values({
+        projectId: ctx.user.activeProjectId,
         quoteNumber: input.quoteNumber,
         clientId: input.clientId,
         issueDate: input.issueDate,
@@ -1318,20 +1339,40 @@ export const appRouter = router({
       } as any);
       return { success: true };
     }),
-    updateQuoteStatus: protectedProcedure.input(z.object({
+    updateQuoteStatus: supervisorProcedure.input(z.object({
       id: z.number(),
-      status: z.enum(["brouillon", "envoyé", "accepté", "refusé", "facturé"]),
-    })).mutation(async ({ input }) => {
+      status: z.enum(["brouillon", "envoyé", "accepté", "refusé", "annulé", "facturé"]),
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.update(quotes).set({ status: input.status }).where(eq(quotes.id, input.id));
+      const existing = await database.select({ id: quotes.id }).from(quotes).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Devis introuvable");
+      await database.update(quotes).set({ status: input.status }).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-
-    listInvoices: protectedProcedure.query(async () => {
-      return await db.getInvoices();
+    confirmQuoteDraft: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: quotes.id, status: quotes.status }).from(quotes).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Devis introuvable");
+      if (existing[0].status !== "brouillon") throw new Error("Seuls les devis en brouillon peuvent être confirmés");
+      await database.update(quotes).set({ status: "envoyé" }).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId)));
+      return { success: true, status: "envoyé" as const };
     }),
-    createInvoice: protectedProcedure.input(z.object({
+    cancelQuoteDraft: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: quotes.id, status: quotes.status }).from(quotes).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Devis introuvable");
+      if (existing[0].status !== "brouillon") throw new Error("Seuls les devis en brouillon peuvent être annulés");
+      await database.update(quotes).set({ status: "annulé" }).where(and(eq(quotes.id, input.id), projectScope(quotes.projectId, ctx.user.activeProjectId)));
+      return { success: true, status: "annulé" as const };
+    }),
+
+    listInvoices: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getInvoices(ctx.user.activeProjectId);
+    }),
+    createInvoice: supervisorProcedure.input(z.object({
       invoiceNumber: z.string().trim().min(1),
       clientId: z.number().int().positive(),
       quoteId: z.number().int().positive().optional(),
@@ -1345,11 +1386,12 @@ export const appRouter = router({
       taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
       await database.insert(invoices).values({
+        projectId: ctx.user.activeProjectId,
         invoiceNumber: input.invoiceNumber,
         clientId: input.clientId,
         quoteId: input.quoteId || null,
@@ -1370,16 +1412,36 @@ export const appRouter = router({
       } as any);
       return { success: true };
     }),
-    updateInvoiceStatus: protectedProcedure.input(z.object({
+    updateInvoiceStatus: supervisorProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["brouillon", "émise", "payée", "en_retard", "annulée"]),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      await database.update(invoices).set({ status: input.status }).where(eq(invoices.id, input.id));
+      const existing = await database.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
+      if (existing.length === 0) throw new Error("Facture introuvable");
+      await database.update(invoices).set({ status: input.status }).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-    updateInvoiceDraft: protectedProcedure.input(z.object({
+    confirmInvoiceDraft: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: invoices.id, status: invoices.status }).from(invoices).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Facture introuvable");
+      if (existing[0].status !== "brouillon") throw new Error("Seules les factures en brouillon peuvent être confirmées");
+      await database.update(invoices).set({ status: "émise" }).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId)));
+      return { success: true, status: "émise" as const };
+    }),
+    cancelInvoiceDraft: supervisorProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: invoices.id, status: invoices.status }).from(invoices).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
+      if (!existing[0]) throw new Error("Facture introuvable");
+      if (existing[0].status !== "brouillon") throw new Error("Seules les factures en brouillon peuvent être annulées");
+      await database.update(invoices).set({ status: "annulée" }).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId)));
+      return { success: true, status: "annulée" as const };
+    }),
+    updateInvoiceDraft: supervisorProcedure.input(z.object({
       id: z.number().int().positive(),
       invoiceNumber: z.string().trim().min(1),
       clientId: z.number().int().positive(),
@@ -1394,10 +1456,10 @@ export const appRouter = router({
       taxRate: z.string().trim().default("0"),
       notes: z.string().optional(),
       termsAndConditions: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
-      const existing = await database.select().from(invoices).where(eq(invoices.id, input.id)).limit(1);
+      const existing = await database.select().from(invoices).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
       if (existing.length === 0) throw new Error("Facture introuvable");
       if (existing[0].status !== "brouillon") throw new Error("Seules les factures en brouillon peuvent être modifiées");
       const totals = calculateCommercialTotals(input.itemsJson, "0", input.discountType, input.discountValue, input.taxRate);
@@ -1417,11 +1479,11 @@ export const appRouter = router({
         itemsJson: input.itemsJson,
         notes: input.notes || null,
         termsAndConditions: input.termsAndConditions || null,
-      } as any).where(eq(invoices.id, input.id));
+      } as any).where(and(eq(invoices.id, input.id), projectScope(invoices.projectId, ctx.user.activeProjectId)));
       return { success: true };
     }),
-    nextQuoteNumber: protectedProcedure.query(async () => {
-      const quoteList = await db.getQuotes();
+    nextQuoteNumber: protectedProcedure.query(async ({ ctx }) => {
+      const quoteList = await db.getQuotes(ctx.user.activeProjectId);
       const currentYear = new Date().getFullYear();
       const maxSequence = quoteList.reduce((max, quote) => {
         const match = String(quote.quoteNumber).match(new RegExp(`DEV-${currentYear}-(\\d+)`));
@@ -1429,14 +1491,228 @@ export const appRouter = router({
       }, 0);
       return `DEV-${currentYear}-${String(maxSequence + 1).padStart(3, "0")}`;
     }),
-    nextInvoiceNumber: protectedProcedure.query(async () => {
-      const invoiceList = await db.getInvoices();
+    nextInvoiceNumber: protectedProcedure.query(async ({ ctx }) => {
+      const invoiceList = await db.getInvoices(ctx.user.activeProjectId);
       const currentYear = new Date().getFullYear();
       const maxSequence = invoiceList.reduce((max, invoice) => {
         const match = String(invoice.invoiceNumber).match(new RegExp(`FAC-${currentYear}-(\\d+)`));
         return Math.max(max, match ? Number(match[1]) : 0);
       }, 0);
       return `FAC-${currentYear}-${String(maxSequence + 1).padStart(3, "0")}`;
+    }),
+  }),
+
+  admin: router({
+    listUsers: adminProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      return database.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        accountStatus: users.accountStatus,
+        preferredCurrency: users.preferredCurrency,
+        showMGAEquivalent: users.showMGAEquivalent,
+        activeProjectId: users.activeProjectId,
+        loginMethod: users.loginMethod,
+        createdAt: users.createdAt,
+        lastSignedIn: users.lastSignedIn,
+      }).from(users);
+    }),
+    createUser: adminProcedure.input(z.object({
+      name: z.string().trim().min(1, "Le nom est obligatoire"),
+      email: z.string().trim().email("L’email est invalide"),
+      role: z.enum(["collaborateur", "superviseur", "admin"]),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
+      if (existing.length > 0) throw new Error("Un compte existe déjà avec cet email");
+      const openId = `pending:${Date.now()}:${input.email}`;
+      const invitationToken = randomUUID();
+      await database.insert(users).values({
+        openId,
+        name: input.name,
+        email: input.email,
+        loginMethod: "admin_invite",
+        role: input.role,
+        accountStatus: "invited",
+        invitationToken,
+      } as any);
+      const created = await database.select({ id: users.id, name: users.name, email: users.email, role: users.role, accountStatus: users.accountStatus }).from(users).where(eq(users.openId, openId)).limit(1);
+      return created[0] ?? { success: true };
+    }),
+    updateUserRole: adminProcedure.input(z.object({
+      userId: z.number().int().positive(),
+      role: z.enum(["collaborateur", "superviseur", "admin"]),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, input.userId)).limit(1);
+      if (existing.length === 0) throw new Error("Compte introuvable");
+      if (existing[0].role === "admin" && input.role !== "admin") {
+        const admins = await database.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
+        if (admins.length <= 1) throw new Error("Le dernier administrateur ne peut pas être rétrogradé");
+      }
+      await database.update(users).set({ role: input.role } as any).where(eq(users.id, input.userId));
+      return { success: true, changedBy: ctx.user.id };
+    }),
+    listProjects: adminProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      return database.select().from(agencyProjects);
+    }),
+    createProject: adminProcedure.input(z.object({
+      name: z.string().trim().min(2, "Le nom du projet est obligatoire"),
+      slug: z.string().trim().min(2).optional(),
+      description: z.string().trim().optional(),
+      ownerUserId: z.number().int().positive().optional(),
+      ownerRole: z.enum(["collaborateur", "superviseur", "admin"]).default("superviseur"),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const slug = (input.slug || input.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
+      if (!slug) throw new Error("Le slug du projet est invalide");
+      const duplicate = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      if (duplicate.length > 0) throw new Error("Un projet existe déjà avec ce slug");
+      if (input.ownerUserId) {
+        const owner = await database.select({ id: users.id }).from(users).where(eq(users.id, input.ownerUserId)).limit(1);
+        if (owner.length === 0) throw new Error("Le compte responsable est introuvable");
+      }
+      await database.insert(agencyProjects).values({
+        name: input.name,
+        slug,
+        description: input.description || null,
+        createdBy: ctx.user.id,
+      } as any);
+      const created = await database.select().from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      const project = created[0];
+      if (project && input.ownerUserId) {
+        await database.insert(projectMembers).values({ projectId: project.id, userId: input.ownerUserId, membershipRole: input.ownerRole } as any);
+      }
+      return project ?? { success: true };
+    }),
+    updateProjectStatus: adminProcedure.input(z.object({
+      projectId: z.number().int().positive(),
+      status: z.enum(["actif", "archive"]),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.update(agencyProjects).set({ status: input.status } as any).where(eq(agencyProjects.id, input.projectId));
+      return { success: true };
+    }),
+    listProjectMembers: adminProcedure.input(z.object({ projectId: z.number().int().positive() })).query(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      return database.select({
+        id: projectMembers.id,
+        projectId: projectMembers.projectId,
+        userId: projectMembers.userId,
+        membershipRole: projectMembers.membershipRole,
+        name: users.name,
+        email: users.email,
+      }).from(projectMembers).leftJoin(users, eq(projectMembers.userId, users.id)).where(eq(projectMembers.projectId, input.projectId));
+    }),
+    assignProjectMember: adminProcedure.input(z.object({
+      projectId: z.number().int().positive(),
+      userId: z.number().int().positive(),
+      membershipRole: z.enum(["collaborateur", "superviseur", "admin"]),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const [project, user, existing] = await Promise.all([
+        database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.id, input.projectId)).limit(1),
+        database.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1),
+        database.select({ id: projectMembers.id }).from(projectMembers).where(and(eq(projectMembers.projectId, input.projectId), eq(projectMembers.userId, input.userId))).limit(1),
+      ]);
+      if (project.length === 0 || user.length === 0) throw new Error("Projet ou compte introuvable");
+      if (existing.length > 0) {
+        await database.update(projectMembers).set({ membershipRole: input.membershipRole } as any).where(eq(projectMembers.id, existing[0].id));
+      } else {
+        await database.insert(projectMembers).values(input as any);
+      }
+      return { success: true };
+    }),
+    removeProjectMember: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.delete(projectMembers).where(eq(projectMembers.id, input.id));
+      return { success: true };
+    }),
+    resendInvitation: adminProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: users.id, accountStatus: users.accountStatus, email: users.email }).from(users).where(eq(users.id, input.userId)).limit(1);
+      if (!existing[0]) throw new Error("Compte introuvable");
+      if (existing[0].accountStatus === "active") throw new Error("Ce compte est déjà actif");
+      const invitationToken = randomUUID();
+      await database.update(users).set({ invitationToken, accountStatus: "invited" } as any).where(eq(users.id, input.userId));
+      return { success: true, status: "invited" as const, email: existing[0].email };
+    }),
+  }),
+
+  preferences: router({
+    get: protectedProcedure.query(({ ctx }) => ({
+      currency: ctx.user.preferredCurrency,
+      showMGAEquivalent: ctx.user.showMGAEquivalent,
+      activeProjectId: ctx.user.activeProjectId,
+    })),
+    update: protectedProcedure.input(z.object({
+      currency: z.enum(["EUR", "MGA"]).optional(),
+      showMGAEquivalent: z.boolean().optional(),
+      activeProjectId: z.number().int().positive().nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      if (input.activeProjectId !== undefined) {
+        if (input.activeProjectId === null) {
+          await database.update(users).set({ activeProjectId: null } as any).where(eq(users.id, ctx.user.id));
+        } else {
+          const membership = await database.select({ id: projectMembers.id }).from(projectMembers).where(and(eq(projectMembers.projectId, input.activeProjectId), eq(projectMembers.userId, ctx.user.id))).limit(1);
+          if (ctx.user.role !== "admin" && membership.length === 0) throw new Error("Vous n’êtes pas membre de ce projet");
+          await database.update(users).set({ activeProjectId: input.activeProjectId } as any).where(eq(users.id, ctx.user.id));
+        }
+      }
+      const preferenceSet: Record<string, unknown> = {};
+      if (input.currency !== undefined) preferenceSet.preferredCurrency = input.currency;
+      if (input.showMGAEquivalent !== undefined) preferenceSet.showMGAEquivalent = input.showMGAEquivalent;
+      if (Object.keys(preferenceSet).length > 0) await database.update(users).set(preferenceSet as any).where(eq(users.id, ctx.user.id));
+      return { success: true };
+    }),
+  }),
+
+  projects: router({
+    mine: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      if (ctx.user.role === "admin") return database.select().from(agencyProjects).where(eq(agencyProjects.status, "actif"));
+      return database.select({ id: agencyProjects.id, name: agencyProjects.name, slug: agencyProjects.slug, description: agencyProjects.description, status: agencyProjects.status, membershipRole: projectMembers.membershipRole }).from(projectMembers).innerJoin(agencyProjects, eq(projectMembers.projectId, agencyProjects.id)).where(and(eq(projectMembers.userId, ctx.user.id), eq(agencyProjects.status, "actif")));
+    }),
+    setActive: protectedProcedure.input(z.object({ projectId: z.number().int().positive().nullable() })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      if (input.projectId !== null && ctx.user.role !== "admin") {
+        const membership = await database.select({ id: projectMembers.id }).from(projectMembers).where(and(eq(projectMembers.projectId, input.projectId), eq(projectMembers.userId, ctx.user.id))).limit(1);
+        if (membership.length === 0) throw new Error("Projet non accessible");
+      }
+      await database.update(users).set({ activeProjectId: input.projectId } as any).where(eq(users.id, ctx.user.id));
+      return { success: true, activeProjectId: input.projectId };
+    }),
+    createForTeam: supervisorProcedure.input(z.object({
+      name: z.string().trim().min(2),
+      slug: z.string().trim().min(2).optional(),
+      description: z.string().trim().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const slug = (input.slug || input.name).toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
+      const duplicate = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      if (duplicate.length > 0) throw new Error("Un projet existe déjà avec ce slug");
+      await database.insert(agencyProjects).values({ name: input.name, slug, description: input.description || null, createdBy: ctx.user.id } as any);
+      const created = await database.select().from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
+      if (created[0]) await database.insert(projectMembers).values({ projectId: created[0].id, userId: ctx.user.id, membershipRole: ctx.user.role } as any);
+      return created[0] ?? { success: true };
     }),
   }),
 });

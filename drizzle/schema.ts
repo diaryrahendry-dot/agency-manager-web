@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date } from "drizzle-orm/mysql-core";
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -11,15 +11,43 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["collaborateur", "superviseur", "admin"]).default("collaborateur").notNull(),
+  accountStatus: mysqlEnum("accountStatus", ["invited", "active", "suspended"]).default("active").notNull(),
+  invitationToken: varchar("invitationToken", { length: 128 }),
+  preferredCurrency: mysqlEnum("preferredCurrency", ["EUR", "MGA"]).default("MGA").notNull(),
+  showMGAEquivalent: boolean("showMGAEquivalent").default(true).notNull(),
+  activeProjectId: int("activeProjectId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const agencyProjects = mysqlTable("agency_projects", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 180 }).notNull(),
+  slug: varchar("slug", { length: 180 }).notNull().unique(),
+  description: text("description"),
+  status: mysqlEnum("status", ["actif", "archive"]).default("actif").notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const projectMembers = mysqlTable("project_members", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  membershipRole: mysqlEnum("membershipRole", ["collaborateur", "superviseur", "admin"]).default("collaborateur").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AgencyProject = typeof agencyProjects.$inferSelect;
+export type ProjectMember = typeof projectMembers.$inferSelect;
+
 // 1. Module RH
 export const agents = mysqlTable("agents", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   name: varchar("name", { length: 150 }).notNull(),
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 50 }),
@@ -96,6 +124,7 @@ export const tickets = mysqlTable("tickets", {
 // 2. Module Comptabilité
 export const cashTransactions = mysqlTable("cash_transactions", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   type: mysqlEnum("type", ["entrée", "sortie"]).notNull(),
   category: varchar("category", { length: 100 }).notNull(), // ex: "Vente client", "Loyer", "Salaires", "Fournitures"
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), // Montant de référence en EUR pour les agrégations historiques
@@ -115,6 +144,7 @@ export const cashTransactions = mysqlTable("cash_transactions", {
 // 3. CRM Leads
 export const leads = mysqlTable("leads", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   companyName: varchar("companyName", { length: 150 }).notNull(),
   contactName: varchar("contactName", { length: 150 }).notNull(),
   email: varchar("email", { length: 320 }).notNull(),
@@ -130,6 +160,7 @@ export const leads = mysqlTable("leads", {
 // 4. Base Clients
 export const clients = mysqlTable("clients", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   companyName: varchar("companyName", { length: 150 }).notNull(),
   contactName: varchar("contactName", { length: 150 }).notNull(),
   email: varchar("email", { length: 320 }).notNull(),
@@ -165,6 +196,7 @@ export const documents = mysqlTable("documents", {
 // 5. Facturation & Devis
 export const quotes = mysqlTable("quotes", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   quoteNumber: varchar("quoteNumber", { length: 50 }).notNull().unique(),
   clientId: int("clientId").notNull(),
   issueDate: date("issueDate").notNull(),
@@ -178,7 +210,7 @@ export const quotes = mysqlTable("quotes", {
   currency: mysqlEnum("currency", ["EUR", "MGA"]).default("EUR").notNull(),
   documentProfile: mysqlEnum("documentProfile", ["fr", "mg"]).default("fr").notNull(),
   complianceJson: text("complianceJson"),
-  status: mysqlEnum("status", ["brouillon", "envoyé", "accepté", "refusé", "facturé"]).default("brouillon").notNull(),
+  status: mysqlEnum("status", ["brouillon", "envoyé", "accepté", "refusé", "annulé", "facturé"]).default("brouillon").notNull(),
   itemsJson: text("itemsJson").notNull(), // JSON des lignes de devis
   notes: text("notes"),
   termsAndConditions: text("termsAndConditions"),
@@ -187,6 +219,7 @@ export const quotes = mysqlTable("quotes", {
 
 export const invoices = mysqlTable("invoices", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   invoiceNumber: varchar("invoiceNumber", { length: 50 }).notNull().unique(),
   clientId: int("clientId").notNull(),
   quoteId: int("quoteId"),
@@ -225,6 +258,7 @@ export type Invoice = typeof invoices.$inferSelect;
 // Catalogue de produits et prestations réutilisables dans les devis et factures
 export const catalogItems = mysqlTable("catalog_items", {
   id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
   itemType: mysqlEnum("itemType", ["produit", "prestation"]).default("prestation").notNull(),
   label: varchar("label", { length: 200 }).notNull(),
   description: text("description"),
