@@ -2733,120 +2733,148 @@ export default function Home() {
                 </DialogHeader>
 
                 <div className="space-y-6 py-4">
-                  <div className="flex flex-wrap gap-2 border-b pb-3">
-                    <Button size="sm" variant={activeTrainingModule === "rh" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "rh" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("rh")}>
+                  <p className="text-xs text-slate-500">Sélectionnez un module ci-dessous pour consulter son tutoriel complet et ses instructions d’utilisation :</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-b pb-4">
+                    <Button size="sm" variant={activeTrainingModule === "rh" ? "default" : "outline"} className={`rounded-xl text-xs font-semibold ${activeTrainingModule === "rh" ? "bg-teal-600 text-white" : "bg-teal-50/50 text-teal-900 border-teal-200"}`} onClick={() => setActiveTrainingModule("rh")}>
                       👥 RH & Pointages
                     </Button>
-                    <Button size="sm" variant={activeTrainingModule === "compta" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "compta" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("compta")}>
+                    <Button size="sm" variant={activeTrainingModule === "compta" ? "default" : "outline"} className={`rounded-xl text-xs font-semibold ${activeTrainingModule === "compta" ? "bg-sky-600 text-white" : "bg-sky-50/50 text-sky-900 border-sky-200"}`} onClick={() => setActiveTrainingModule("compta")}>
                       💰 Comptabilité
                     </Button>
-                    <Button size="sm" variant={activeTrainingModule === "crm" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "crm" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("crm")}>
+                    <Button size="sm" variant={activeTrainingModule === "crm" ? "default" : "outline"} className={`rounded-xl text-xs font-semibold ${activeTrainingModule === "crm" ? "bg-amber-600 text-white" : "bg-amber-50/50 text-amber-900 border-amber-200"}`} onClick={() => setActiveTrainingModule("crm")}>
                       📊 CRM & Leads
                     </Button>
-                    <Button size="sm" variant={activeTrainingModule === "facturation" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "facturation" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("facturation")}>
-                      📄 Facturation & Devis
+                    <Button size="sm" variant={activeTrainingModule === "facturation" ? "default" : "outline"} className={`rounded-xl text-xs font-semibold ${activeTrainingModule === "facturation" ? "bg-orange-600 text-white" : "bg-orange-50/50 text-orange-900 border-orange-200"}`} onClick={() => setActiveTrainingModule("facturation")}>
+                      📄 Facturation
                     </Button>
-                    <Button size="sm" variant={activeTrainingModule === "parametres" ? "default" : "outline"} className={`rounded-xl ${activeTrainingModule === "parametres" ? "bg-teal-600 text-white" : ""}`} onClick={() => setActiveTrainingModule("parametres")}>
-                      ⚙️ Rôles & Projets
+                    <Button size="sm" variant={activeTrainingModule === "parametres" ? "default" : "outline"} className={`rounded-xl text-xs font-semibold ${activeTrainingModule === "parametres" ? "bg-indigo-600 text-white" : "bg-indigo-50/50 text-indigo-900 border-indigo-200"}`} onClick={() => setActiveTrainingModule("parametres")}>
+                      ⚙️ Paramètres
                     </Button>
                   </div>
 
-                  {activeTrainingModule === "rh" && (
-                    <div className="space-y-4 text-sm text-slate-700">
-                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique RH & Agents</h3>
-                      <p>
-                        La gestion des ressources humaines repose sur un suivi précis en journées de travail (1 journée standard = 8 heures). Chaque agent dispose d'une fiche complète intégrant son contrat, ses documents officiels et son ancienneté.
-                      </p>
-                      <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4 space-y-2">
-                        <p className="font-semibold text-teal-900">Points clés à retenir :</p>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-teal-800">
-                          <li><strong>Pointages :</strong> Enregistrez les heures travaillées. Une fois validés par le collaborateur, les pointages sont verrouillés pour garantir l'intégrité de la paie.</li>
-                          <li><strong>Congés et soldes :</strong> Le solde de congés est mis à jour dynamiquement et se décompte à la fin de la période active.</li>
-                          <li><strong>Avances sur salaire :</strong> Les demandes d'avance peuvent être converties en sorties de caisse comptables depuis le planning superviseur en un clic.</li>
-                        </ul>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-4 shadow-xs">
+                    {activeTrainingModule === "rh" && (
+                      <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-teal-900 flex items-center gap-2"><span>👥</span> Guide Rubrique RH & Agents</h3>
+                          <Badge className="bg-teal-100 text-teal-800 border-teal-200">Module opérationnel</Badge>
+                        </div>
+                        <p>
+                          La gestion des ressources humaines repose sur un suivi précis en journées de travail (1 journée standard = 8 heures). Chaque agent dispose d'une fiche complète intégrant son contrat, ses documents officiels et son ancienneté.
+                        </p>
+                        <div className="rounded-2xl border border-teal-200 bg-white p-4 space-y-2 shadow-xs">
+                          <p className="font-semibold text-teal-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
+                            <li><strong>Pointages en jours :</strong> Enregistrez les heures travaillées. Une fois validés par le collaborateur, les pointages sont verrouillés pour garantir l'intégrité de la paie.</li>
+                            <li><strong>Congés et soldes :</strong> Le solde de congés est mis à jour dynamiquement et se décompte à la fin de la période active.</li>
+                            <li><strong>Avances sur salaire :</strong> Les demandes d'avance peuvent être converties en sorties de caisse comptables depuis le planning superviseur en un clic.</li>
+                          </ul>
+                        </div>
+                        <div className="pt-2">
+                          <Button className="bg-teal-600 text-white hover:bg-teal-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("hr"); }}>
+                            Accéder à la rubrique RH <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="bg-teal-600 text-white hover:bg-teal-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("hr"); }}>
-                        Accéder à la rubrique RH <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                    )}
 
-                  {activeTrainingModule === "compta" && (
-                    <div className="space-y-4 text-sm text-slate-700">
-                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Comptabilité</h3>
-                      <p>
-                        Le module de comptabilité centralise toutes les entrées et sorties de trésorerie en devises doubles (EUR et MGA) avec un taux de change paramétrable.
-                      </p>
-                      <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-2">
-                        <p className="font-semibold text-sky-900">Points clés à retenir :</p>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-sky-800">
-                          <li><strong>Mouvements :</strong> Enregistrez chaque entrée ou sortie de caisse avec sa catégorie, son mode de paiement et une note interne si nécessaire.</li>
-                          <li><strong>Conversions automatiques :</strong> Les factures payées et les avances validées peuvent être converties instantanément en écritures comptables.</li>
-                          <li><strong>Reporting et Exports :</strong> Retrouvez les rapports mensuels automatiques et exportez vos données en Excel ou CSV en un clic.</li>
-                        </ul>
+                    {activeTrainingModule === "compta" && (
+                      <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-sky-900 flex items-center gap-2"><span>💰</span> Guide Rubrique Comptabilité</h3>
+                          <Badge className="bg-sky-100 text-sky-800 border-sky-200">Trésorerie & CA</Badge>
+                        </div>
+                        <p>
+                          Le module de comptabilité centralise toutes les entrées et sorties de trésorerie en devises doubles (EUR et MGA) avec un taux de change paramétrable.
+                        </p>
+                        <div className="rounded-2xl border border-sky-200 bg-white p-4 space-y-2 shadow-xs">
+                          <p className="font-semibold text-sky-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
+                            <li><strong>Mouvements :</strong> Enregistrez chaque entrée ou sortie de caisse avec sa catégorie, son mode de paiement et une note interne si nécessaire.</li>
+                            <li><strong>Conversions automatiques :</strong> Les factures payées et les avances validées peuvent être converties instantanément en écritures comptables.</li>
+                            <li><strong>Reporting et Exports :</strong> Retrouvez les rapports mensuels automatiques et exportez vos données en Excel ou CSV en un clic.</li>
+                          </ul>
+                        </div>
+                        <div className="pt-2">
+                          <Button className="bg-sky-600 text-white hover:bg-sky-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("accounting"); }}>
+                            Accéder à la comptabilité <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="bg-sky-600 text-white hover:bg-sky-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("accounting"); }}>
-                        Accéder à la comptabilité <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                    )}
 
-                  {activeTrainingModule === "crm" && (
-                    <div className="space-y-4 text-sm text-slate-700">
-                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique CRM & Leads</h3>
-                      <p>
-                        Le CRM combine la souplesse d'un tableau Kanban et d'un tableur dynamique pour qualifier vos opportunités commerciales, planifier les relances et suivre le montant attendu de chaque vente.
-                      </p>
-                      <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 space-y-2">
-                        <p className="font-semibold text-amber-900">Points clés à retenir :</p>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-amber-800">
-                          <li><strong>Glisser-déposer / Statuts :</strong> Faites progresser vos prospects du premier contact jusqu'à la signature du contrat.</li>
-                          <li><strong>Conversion en client :</strong> Dès qu'un contrat est confirmé, transformez le lead en client pour basculer automatiquement ses données dans la base clients.</li>
-                        </ul>
+                    {activeTrainingModule === "crm" && (
+                      <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-amber-900 flex items-center gap-2"><span>📊</span> Guide Rubrique CRM & Leads</h3>
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-200">Commercial</Badge>
+                        </div>
+                        <p>
+                          Le CRM combine la souplesse d'un tableau Kanban et d'un tableur dynamique pour qualifier vos opportunités commerciales, planifier les relances et suivre le montant attendu de chaque vente.
+                        </p>
+                        <div className="rounded-2xl border border-amber-200 bg-white p-4 space-y-2 shadow-xs">
+                          <p className="font-semibold text-amber-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
+                            <li><strong>Glisser-déposer / Statuts :</strong> Faites progresser vos prospects du premier contact jusqu'à la signature du contrat.</li>
+                            <li><strong>Conversion en client :</strong> Dès qu'un contrat est confirmé, transformez le lead en client pour basculer automatiquement ses données dans la base clients.</li>
+                          </ul>
+                        </div>
+                        <div className="pt-2">
+                          <Button className="bg-amber-600 text-white hover:bg-amber-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("crm"); }}>
+                            Accéder au CRM <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="bg-amber-600 text-white hover:bg-amber-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("crm"); }}>
-                        Accéder au CRM <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                    )}
 
-                  {activeTrainingModule === "facturation" && (
-                    <div className="space-y-4 text-sm text-slate-700">
-                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Devis & Facturation</h3>
-                      <p>
-                        Émettez des devis et factures professionnels respectant les normes françaises et malgaches, enrichis par un catalogue de prestations unifié et des calculs automatiques de TVA et de remises.
-                      </p>
-                      <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 space-y-2">
-                        <p className="font-semibold text-orange-900">Points clés à retenir :</p>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-orange-800">
-                          <li><strong>Catalogue intégré :</strong> Sélectionnez directement vos prestations dans le catalogue lors de la création d'un document.</li>
-                          <li><strong>États et Brouillons :</strong> Modifiez les documents en statut brouillon, confirmez-les ou annulez-les en toute sécurité.</li>
-                        </ul>
+                    {activeTrainingModule === "facturation" && (
+                      <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-orange-900 flex items-center gap-2"><span>📄</span> Guide Rubrique Devis & Facturation</h3>
+                          <Badge className="bg-orange-100 text-orange-800 border-orange-200">Documents légaux</Badge>
+                        </div>
+                        <p>
+                          Émettez des devis et factures professionnels respectant les normes françaises et malgaches, enrichis par un catalogue de prestations unifié et des calculs automatiques de TVA et de remises.
+                        </p>
+                        <div className="rounded-2xl border border-orange-200 bg-white p-4 space-y-2 shadow-xs">
+                          <p className="font-semibold text-orange-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
+                            <li><strong>Catalogue intégré :</strong> Sélectionnez directement vos prestations dans le catalogue lors de la création d'un document.</li>
+                            <li><strong>États et Brouillons :</strong> Modifiez les documents en statut brouillon, confirmez-les ou annulez-les en toute sécurité.</li>
+                          </ul>
+                        </div>
+                        <div className="pt-2">
+                          <Button className="bg-orange-600 text-white hover:bg-orange-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("billing"); }}>
+                            Accéder à la facturation <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="bg-orange-600 text-white hover:bg-orange-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("billing"); }}>
-                        Accéder à la facturation <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                    )}
 
-                  {activeTrainingModule === "parametres" && (
-                    <div className="space-y-4 text-sm text-slate-700">
-                      <h3 className="text-lg font-bold text-slate-900">Guide Rubrique Paramètres & Rôles</h3>
-                      <p>
-                        Gérez les accès de votre équipe avec trois niveaux de rôles (Collaborateur, Superviseur, Admin) et configurez les permissions détaillées pour chaque profil.
-                      </p>
-                      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2">
-                        <p className="font-semibold text-indigo-900">Points clés à retenir :</p>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-indigo-800">
-                          <li><strong>Sécurité et Rôles :</strong> Les collaborateurs disposent d'un espace restreint et sécurisé. Les superviseurs valident les équipes. Les admins pilotent les paramètres.</li>
-                          <li><strong>Multi-projets :</strong> Créez de nouveaux espaces cloisonnés avec des templates dédiés.</li>
-                        </ul>
+                    {activeTrainingModule === "parametres" && (
+                      <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-indigo-900 flex items-center gap-2"><span>⚙️</span> Guide Rubrique Paramètres & Rôles</h3>
+                          <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200">Administration</Badge>
+                        </div>
+                        <p>
+                          Gérez les accès de votre équipe avec trois niveaux de rôles (Collaborateur, Superviseur, Admin) et configurez les permissions détaillées pour chaque profil.
+                        </p>
+                        <div className="rounded-2xl border border-indigo-200 bg-white p-4 space-y-2 shadow-xs">
+                          <p className="font-semibold text-indigo-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
+                            <li><strong>Sécurité et Rôles :</strong> Les collaborateurs disposent d'un espace restreint et sécurisé. Les superviseurs valident les équipes. Les admins pilotent les paramètres.</li>
+                            <li><strong>Multi-projets :</strong> Créez de nouveaux espaces cloisonnés avec des templates dédiés.</li>
+                          </ul>
+                        </div>
+                        <div className="pt-2">
+                          <Button className="bg-indigo-600 text-white hover:bg-indigo-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("settings"); }}>
+                            Accéder aux paramètres <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="bg-indigo-600 text-white hover:bg-indigo-500 rounded-xl" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("settings"); }}>
-                        Accéder aux paramètres <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 <DialogFooter>

@@ -212,6 +212,10 @@
 - [x] Implémenter le contrôle d’accès renforcé, l’invitation sécurisée et le journal des modifications par client
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
 
-- [ ] Ajouter une rubrique « Formation » dans le parcours d’intégration avec des fiches tutoriels pour chaque module
-- [ ] Créer un modal ou un panneau de lecture des tutoriels (RH, Comptabilité, CRM, Facturation, Paramètres)
-- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+- [x] Ajouter une rubrique « Formation » dans le parcours d’intégration avec des fiches tutoriels pour chaque module
+- [x] Créer un modal ou un panneau de lecture des tutoriels (RH, Comptabilité, CRM, Facturation, Paramètres)
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Diagnostiquer et corriger le rendu de la modale Formation pour que les tutoriels s’affichent instantanément à l’ouverture
+- [x] Enrichir le contenu pédagogique et rendre les onglets de formation immédiatement actifs sans état vide
+- [x] Valider avec les tests Vitest, TypeScript, build et capture visuelle
