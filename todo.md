@@ -93,7 +93,11 @@
 - [x] Mettre à jour les exports Excel/CSV et les tests unitaires Vitest
 - [x] Valider avec TypeScript, Vitest et un checkpoint final
 
-- [ ] Créer une section statistiques dynamiques en tableur avec alimentation mensuelle et filtres par client, agent, service et mois
-- [ ] Créer une section Budget Planner pour enregistrer les dépenses récurrentes, sauvegarder la feuille et convertir le total en sortie de caisse
-- [ ] Valider avec les tests unitaires Vitest et TypeScript
-- [ ] Créer le checkpoint final de la version enrichie
+- [x] Créer une section statistiques dynamiques en tableur avec alimentation mensuelle et filtres par client, agent, service et mois
+- [x] Créer une section Budget Planner pour enregistrer les dépenses récurrentes, sauvegarder la feuille et convertir le total en sortie de caisse
+- [x] Valider avec les tests unitaires Vitest et TypeScript
+- [x] Créer le checkpoint final de la version enrichie
+
+- [ ] Structurer les rubriques Statistiques et Budget Planner comme des sections autonomes avec des boutons d’accès et d’action dédiés à l’image de Devis & Factures
+- [ ] Vérifier la navigation responsive et exécuter les tests Vitest et TypeScript
+- [ ] Créer le checkpoint final de la présentation des rubriques

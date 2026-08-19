@@ -984,6 +984,39 @@ export default function Home() {
                 </CardContent>
               </Card>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-indigo-950"><FileSpreadsheet className="h-5 w-5 text-indigo-600" /> Statistiques</CardTitle>
+                      <CardDescription className="mt-1">Tableur mensuel filtrable par client, agent, service et période.</CardDescription>
+                    </div>
+                    <Badge variant="outline" className="border-indigo-200 bg-white text-indigo-700">Rubrique</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button className="bg-indigo-600 text-white hover:bg-indigo-500" onClick={() => openDashboardModule("stats")}><FileSpreadsheet className="mr-2 h-4 w-4" /> Ouvrir les statistiques</Button>
+                  <Button variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { openDashboardModule("stats"); setIsStatOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Alimenter le mois</Button>
+                </CardContent>
+              </Card>
+              <Card className="border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-emerald-950"><WalletCards className="h-5 w-5 text-emerald-600" /> Budget Planner</CardTitle>
+                      <CardDescription className="mt-1">Dépenses récurrentes, feuilles mensuelles et conversion en sortie de caisse.</CardDescription>
+                    </div>
+                    <Badge variant="outline" className="border-emerald-200 bg-white text-emerald-700">Rubrique</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button className="bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => openDashboardModule("budget")}><WalletCards className="mr-2 h-4 w-4" /> Ouvrir le budget</Button>
+                  <Button variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => { openDashboardModule("budget"); setIsBudgetOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Nouvelle feuille</Button>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           {/* MODULE RH & AGENTS */}

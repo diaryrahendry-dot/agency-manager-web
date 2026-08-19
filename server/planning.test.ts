@@ -21,6 +21,9 @@ describe("AgencyManager Pro - statistiques dynamiques et Budget Planner", () => 
     expect(homeSource).toContain("statFilters.serviceName");
     expect(homeSource).toContain("dynamicStatsTotals");
     expect(homeSource).toContain("Alimenter le mois");
+    expect(homeSource).toContain("Ouvrir les statistiques");
+    expect(homeSource).toContain("Ouvrir le budget");
+    expect(homeSource).toContain("Nouvelle feuille");
   });
 
   it("propose la sauvegarde d’une feuille récurrente et sa conversion en sortie de caisse", () => {
