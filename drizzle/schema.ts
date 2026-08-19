@@ -205,3 +205,34 @@ export type ClientInteraction = typeof clientInteractions.$inferSelect;
 export type DocumentRecord = typeof documents.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
+
+// 6. Tableur Statistiques Dynamiques & Budget Planner
+export const dynamicStats = mysqlTable("dynamic_stats", {
+  id: int("id").autoincrement().primaryKey(),
+  monthKey: varchar("monthKey", { length: 20 }).notNull(), // ex: "2026-08"
+  clientName: varchar("clientName", { length: 150 }).notNull(),
+  agentName: varchar("agentName", { length: 150 }).notNull(),
+  serviceName: varchar("serviceName", { length: 150 }).notNull(), // ex: "Développement Web", "Conseil", "Design"
+  revenue: decimal("revenue", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  expenses: decimal("expenses", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  workDays: decimal("workDays", { precision: 6, scale: 2 }).default("0.00").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const budgetSheets = mysqlTable("budget_sheets", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 150 }).notNull(),
+  monthKey: varchar("monthKey", { length: 20 }).notNull(), // ex: "2026-08"
+  itemsJson: text("itemsJson").notNull(), // JSON des lignes de dépenses récurrentes (nom, catégorie, montant MGA/EUR, etc.)
+  totalAmount: decimal("totalAmount", { precision: 12, scale: 2 }).notNull(), // montant de référence EUR
+  amountInCurrency: decimal("amountInCurrency", { precision: 12, scale: 2 }).default("0.00").notNull(),
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("MGA").notNull(),
+  exchangeRate: decimal("exchangeRate", { precision: 12, scale: 6 }).default("1").notNull(),
+  status: mysqlEnum("status", ["brouillon", "validé", "converti_caisse"]).default("brouillon").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DynamicStat = typeof dynamicStats.$inferSelect;
+export type BudgetSheet = typeof budgetSheets.$inferSelect;

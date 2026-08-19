@@ -53,6 +53,9 @@ export default function Home() {
   const automaticReportQuery = trpc.accounting.automaticReport.useQuery(undefined, { enabled: isAuthenticated });
   const [reportMonth, setReportMonth] = useState("2026-08");
   const monthlyReportQuery = trpc.accounting.monthlyReport.useQuery({ month: reportMonth }, { enabled: isAuthenticated });
+  const dynamicStatsQuery = trpc.planning.listDynamicStats.useQuery(undefined, { enabled: isAuthenticated });
+  const statFilterOptionsQuery = trpc.planning.statFilterOptions.useQuery(undefined, { enabled: isAuthenticated });
+  const budgetSheetsQuery = trpc.planning.listBudgetSheets.useQuery(undefined, { enabled: isAuthenticated });
 
   const getAgentMonthlySummary = (agentId: number) => {
     const monthEntries = (timeEntriesQuery.data || []).filter(entry => entry.agentId === agentId && String(entry.date).slice(0, 7) === reportMonth);
@@ -114,6 +117,12 @@ export default function Home() {
   const [invoiceCashCurrency, setInvoiceCashCurrency] = useState<CurrencyCode>("MGA");
   const [invoiceCashRate, setInvoiceCashRate] = useState(String(DEFAULT_EUR_TO_MGA));
   const [invoiceCashPaymentMethod, setInvoiceCashPaymentMethod] = useState("Virement");
+  const [statFilters, setStatFilters] = useState({ monthKey: "", clientName: "", agentName: "", serviceName: "" });
+  const [isStatOpen, setIsStatOpen] = useState(false);
+  const [statForm, setStatForm] = useState({ monthKey: "2026-08", clientName: "", agentName: "", serviceName: "", revenue: "0", expenses: "0", workDays: "0", notes: "" });
+  const [isBudgetOpen, setIsBudgetOpen] = useState(false);
+  const [budgetForm, setBudgetForm] = useState({ title: "Budget récurrent", monthKey: "2026-08", currency: "MGA" as CurrencyCode, exchangeRate: String(DEFAULT_EUR_TO_MGA), notes: "" });
+  const [budgetItems, setBudgetItems] = useState([{ label: "", category: "", amount: "0", note: "" }]);
 
   const [isLeadOpen, setIsLeadOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "5000.00", priority: "moyenne" as const, status: "nouveau" as const, nextContactDate: "2026-08-25", notes: "" });
@@ -451,6 +460,55 @@ export default function Home() {
     onError: (err) => toast.error("Erreur : " + err.message)
   });
 
+  const createDynamicStatMutation = trpc.planning.createDynamicStat.useMutation({
+    onSuccess: () => {
+      toast.success("Ligne statistique mensuelle enregistrée.");
+      setIsStatOpen(false);
+      utils.planning.listDynamicStats.invalidate();
+      utils.planning.statFilterOptions.invalidate();
+    },
+    onError: (err) => toast.error("Impossible d’enregistrer la statistique : " + err.message),
+  });
+
+  const deleteDynamicStatMutation = trpc.planning.deleteDynamicStat.useMutation({
+    onSuccess: () => {
+      toast.success("Ligne statistique supprimée.");
+      utils.planning.listDynamicStats.invalidate();
+      utils.planning.statFilterOptions.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de supprimer la statistique : " + err.message),
+  });
+
+  const createBudgetSheetMutation = trpc.planning.createBudgetSheet.useMutation({
+    onSuccess: () => {
+      toast.success("Feuille budgétaire enregistrée.");
+      setIsBudgetOpen(false);
+      utils.planning.listBudgetSheets.invalidate();
+    },
+    onError: (err) => toast.error("Impossible d’enregistrer le budget : " + err.message),
+  });
+
+  const deleteBudgetSheetMutation = trpc.planning.deleteBudgetSheet.useMutation({
+    onSuccess: () => {
+      toast.success("Feuille budgétaire supprimée.");
+      utils.planning.listBudgetSheets.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de supprimer la feuille : " + err.message),
+  });
+
+  const convertBudgetSheetMutation = trpc.planning.convertBudgetSheetToTransaction.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Budget converti en sortie de caisse (${result.currency}).`);
+      utils.planning.listBudgetSheets.invalidate();
+      utils.accounting.listTransactions.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Conversion du budget impossible : " + err.message),
+  });
+
   const handleUpdateAgent = () => {
     if (!editingAgentId) return;
     updateAgentMutation.mutate({ id: editingAgentId, ...agentEditForm, name: agentEditForm.name.trim(), email: agentEditForm.email.trim(), phone: agentEditForm.phone.trim(), position: agentEditForm.position.trim(), department: agentEditForm.department.trim(), salary: toStoredEur(agentEditForm.salary.trim()), address: agentEditForm.address.trim(), emergencyContact: agentEditForm.emergencyContact.trim(), notes: agentEditForm.notes.trim() });
@@ -539,6 +597,56 @@ export default function Home() {
     if (window.confirm(`Supprimer cette demande de congé (${leave.leaveType}) ?`)) {
       deleteLeaveMutation.mutate({ id: leave.id });
     }
+  };
+
+  const handleSaveDynamicStat = () => {
+    if (!statForm.monthKey || !statForm.clientName.trim() || !statForm.agentName.trim() || !statForm.serviceName.trim()) {
+      toast.error("Renseignez le mois, le client, l’agent et le service.");
+      return;
+    }
+    createDynamicStatMutation.mutate({
+      ...statForm,
+      clientName: statForm.clientName.trim(),
+      agentName: statForm.agentName.trim(),
+      serviceName: statForm.serviceName.trim(),
+      revenue: statForm.revenue.trim(),
+      expenses: statForm.expenses.trim(),
+      workDays: statForm.workDays.trim(),
+      notes: statForm.notes.trim(),
+    });
+  };
+
+  const updateBudgetItem = (index: number, key: "label" | "category" | "amount" | "note", value: string) => {
+    setBudgetItems((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
+  };
+
+  const handleSaveBudgetSheet = () => {
+    const validItems = budgetItems.filter((item) => item.label.trim() && item.category.trim() && Number.isFinite(Number(item.amount)) && Number(item.amount) >= 0);
+    if (!budgetForm.title.trim() || !budgetForm.monthKey || validItems.length === 0) {
+      toast.error("Renseignez le titre, le mois et au moins une dépense complète.");
+      return;
+    }
+    if (budgetForm.currency === "MGA" && (!Number.isFinite(Number(budgetForm.exchangeRate)) || Number(budgetForm.exchangeRate) <= 0)) {
+      toast.error("Indiquez un taux EUR/MGA positif pour le budget.");
+      return;
+    }
+    createBudgetSheetMutation.mutate({ ...budgetForm, title: budgetForm.title.trim(), notes: budgetForm.notes.trim(), items: validItems });
+  };
+
+  const filteredDynamicStats = (dynamicStatsQuery.data || []).filter((row) => {
+    if (statFilters.monthKey && row.monthKey !== statFilters.monthKey) return false;
+    if (statFilters.clientName && row.clientName !== statFilters.clientName) return false;
+    if (statFilters.agentName && row.agentName !== statFilters.agentName) return false;
+    if (statFilters.serviceName && row.serviceName !== statFilters.serviceName) return false;
+    return true;
+  });
+  const dynamicStatsTotals = filteredDynamicStats.reduce((totals, row) => ({
+    revenue: totals.revenue + Number(row.revenue),
+    expenses: totals.expenses + Number(row.expenses),
+    workDays: totals.workDays + Number(row.workDays),
+  }), { revenue: 0, expenses: 0, workDays: 0 });
+  const parseBudgetItems = (itemsJson: string) => {
+    try { return JSON.parse(itemsJson) as Array<{ label: string; category: string; amount: string; note?: string }>; } catch { return []; }
   };
 
   // Export CSV Comptabilité
@@ -677,6 +785,12 @@ export default function Home() {
               </TabsTrigger>
               <TabsTrigger value="billing" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
                 <FileText className="w-4 h-4 mr-2" /> Devis & Factures
+              </TabsTrigger>
+              <TabsTrigger value="stats" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+                <FileSpreadsheet className="w-4 h-4 mr-2" /> Statistiques
+              </TabsTrigger>
+              <TabsTrigger value="budget" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+                <WalletCards className="w-4 h-4 mr-2" /> Budget Planner
               </TabsTrigger>
             </TabsList>
           </div>
@@ -1702,6 +1816,81 @@ export default function Home() {
                 </Table>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* STATISTIQUES DYNAMIQUES */}
+          <TabsContent value="stats" className="space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Statistiques dynamiques</h2>
+                <p className="text-sm text-slate-500">Un tableur mensuel filtrable par client, agent, service et période.</p>
+              </div>
+              <Dialog open={isStatOpen} onOpenChange={setIsStatOpen}>
+                <DialogTrigger asChild><Button className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl"><Plus className="mr-2 h-4 w-4" /> Alimenter le mois</Button></DialogTrigger>
+                <DialogContent className="max-w-2xl bg-white rounded-2xl">
+                  <DialogHeader><DialogTitle>Ajouter une ligne statistique</DialogTitle><DialogDescription>Enregistrez une ligne du tableur pour un mois, un client, un agent et un service.</DialogDescription></DialogHeader>
+                  <div className="grid gap-4 py-4 md:grid-cols-2">
+                    <div className="space-y-2"><Label>Mois</Label><Input type="month" value={statForm.monthKey} onChange={event => setStatForm({ ...statForm, monthKey: event.target.value })} /></div>
+                    <div className="space-y-2"><Label>Client</Label><Input value={statForm.clientName} onChange={event => setStatForm({ ...statForm, clientName: event.target.value })} placeholder="Client ou compte" /></div>
+                    <div className="space-y-2"><Label>Agent</Label><Input value={statForm.agentName} onChange={event => setStatForm({ ...statForm, agentName: event.target.value })} placeholder="Collaborateur" /></div>
+                    <div className="space-y-2"><Label>Service</Label><Input value={statForm.serviceName} onChange={event => setStatForm({ ...statForm, serviceName: event.target.value })} placeholder="Service délivré" /></div>
+                    <div className="space-y-2"><Label>CA (MGA)</Label><Input type="number" min="0" value={statForm.revenue} onChange={event => setStatForm({ ...statForm, revenue: event.target.value })} /></div>
+                    <div className="space-y-2"><Label>Dépenses (MGA)</Label><Input type="number" min="0" value={statForm.expenses} onChange={event => setStatForm({ ...statForm, expenses: event.target.value })} /></div>
+                    <div className="space-y-2"><Label>Jours travaillés</Label><Input type="number" min="0" step="0.25" value={statForm.workDays} onChange={event => setStatForm({ ...statForm, workDays: event.target.value })} /></div>
+                    <div className="space-y-2 md:col-span-2"><Label>Note</Label><Textarea value={statForm.notes} onChange={event => setStatForm({ ...statForm, notes: event.target.value })} placeholder="Contexte ou commentaire interne" /></div>
+                  </div>
+                  <DialogFooter><Button variant="outline" onClick={() => setIsStatOpen(false)}>Annuler</Button><Button onClick={handleSaveDynamicStat} disabled={createDynamicStatMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white">{createDynamicStatMutation.isPending ? "Enregistrement…" : "Enregistrer la ligne"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <Card className="border-slate-200 shadow-sm bg-white">
+              <CardHeader><CardTitle>Vues filtrées</CardTitle><CardDescription>Les totaux se recalculent instantanément à partir des lignes visibles.</CardDescription></CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="space-y-2"><Label className="text-xs text-slate-500">Mois</Label><Select value={statFilters.monthKey || "all"} onValueChange={value => setStatFilters({ ...statFilters, monthKey: value === "all" ? "" : value })}><SelectTrigger><SelectValue placeholder="Tous les mois" /></SelectTrigger><SelectContent><SelectItem value="all">Tous les mois</SelectItem>{statFilterOptionsQuery.data?.months.map(month => <SelectItem key={month} value={month}>{month}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label className="text-xs text-slate-500">Client</Label><Select value={statFilters.clientName || "all"} onValueChange={value => setStatFilters({ ...statFilters, clientName: value === "all" ? "" : value })}><SelectTrigger><SelectValue placeholder="Tous les clients" /></SelectTrigger><SelectContent><SelectItem value="all">Tous les clients</SelectItem>{statFilterOptionsQuery.data?.clients.map(client => <SelectItem key={client} value={client}>{client}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label className="text-xs text-slate-500">Agent</Label><Select value={statFilters.agentName || "all"} onValueChange={value => setStatFilters({ ...statFilters, agentName: value === "all" ? "" : value })}><SelectTrigger><SelectValue placeholder="Tous les agents" /></SelectTrigger><SelectContent><SelectItem value="all">Tous les agents</SelectItem>{statFilterOptionsQuery.data?.agents.map(agent => <SelectItem key={agent} value={agent}>{agent}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label className="text-xs text-slate-500">Service</Label><Select value={statFilters.serviceName || "all"} onValueChange={value => setStatFilters({ ...statFilters, serviceName: value === "all" ? "" : value })}><SelectTrigger><SelectValue placeholder="Tous les services" /></SelectTrigger><SelectContent><SelectItem value="all">Tous les services</SelectItem>{statFilterOptionsQuery.data?.services.map(service => <SelectItem key={service} value={service}>{service}</SelectItem>)}</SelectContent></Select></div>
+                </div>
+                <div className="mt-5 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl bg-indigo-50 p-4"><p className="text-xs uppercase tracking-wide text-indigo-600">CA visible</p><p className="mt-1 text-xl font-bold text-indigo-950">{formatCurrency(dynamicStatsTotals.revenue, "MGA")}</p></div>
+                  <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs uppercase tracking-wide text-rose-600">Dépenses visibles</p><p className="mt-1 text-xl font-bold text-rose-950">{formatCurrency(dynamicStatsTotals.expenses, "MGA")}</p></div>
+                  <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs uppercase tracking-wide text-emerald-600">Jours travaillés</p><p className="mt-1 text-xl font-bold text-emerald-950">{dynamicStatsTotals.workDays.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} j</p></div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 shadow-sm bg-white">
+              <CardHeader><CardTitle>Tableur mensuel</CardTitle><CardDescription>{filteredDynamicStats.length} ligne(s) affichée(s) sur {dynamicStatsQuery.data?.length || 0} enregistrée(s).</CardDescription></CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table><TableHeader><TableRow><TableHead>Mois</TableHead><TableHead>Client</TableHead><TableHead>Agent</TableHead><TableHead>Service</TableHead><TableHead>CA MGA</TableHead><TableHead>Dépenses MGA</TableHead><TableHead>Jours</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>
+                  {filteredDynamicStats.map(row => <TableRow key={row.id}><TableCell className="font-medium">{row.monthKey}</TableCell><TableCell>{row.clientName}</TableCell><TableCell>{row.agentName}</TableCell><TableCell>{row.serviceName}</TableCell><TableCell className="font-semibold text-indigo-700">{formatCurrency(Number(row.revenue), "MGA")}</TableCell><TableCell className="text-rose-700">{formatCurrency(Number(row.expenses), "MGA")}</TableCell><TableCell>{Number(row.workDays).toLocaleString("fr-FR", { maximumFractionDigits: 2 })}</TableCell><TableCell className="text-right"><Button size="sm" variant="outline" className="text-rose-700" onClick={() => { if (window.confirm("Supprimer cette ligne statistique ?")) deleteDynamicStatMutation.mutate({ id: row.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button></TableCell></TableRow>)}
+                  {filteredDynamicStats.length === 0 && <TableRow><TableCell colSpan={8} className="py-10 text-center text-slate-500">Aucune ligne pour ces filtres. Alimentez le mois pour commencer.</TableCell></TableRow>}
+                </TableBody></Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* BUDGET PLANNER */}
+          <TabsContent value="budget" className="space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div><h2 className="text-2xl font-bold tracking-tight">Budget Planner</h2><p className="text-sm text-slate-500">Planifiez les dépenses récurrentes, sauvegardez la feuille et transformez-la en sortie de caisse.</p></div>
+              <Dialog open={isBudgetOpen} onOpenChange={setIsBudgetOpen}>
+                <DialogTrigger asChild><Button className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl"><Plus className="mr-2 h-4 w-4" /> Nouvelle feuille</Button></DialogTrigger>
+                <DialogContent className="max-w-3xl bg-white rounded-2xl">
+                  <DialogHeader><DialogTitle>Enregistrer une feuille budgétaire</DialogTitle><DialogDescription>Ajoutez les dépenses récurrentes du mois dans la devise de votre choix.</DialogDescription></DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="grid gap-4 md:grid-cols-3"><div className="space-y-2 md:col-span-2"><Label>Nom de la feuille</Label><Input value={budgetForm.title} onChange={event => setBudgetForm({ ...budgetForm, title: event.target.value })} /></div><div className="space-y-2"><Label>Mois</Label><Input type="month" value={budgetForm.monthKey} onChange={event => setBudgetForm({ ...budgetForm, monthKey: event.target.value })} /></div></div>
+                    <div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label>Devise</Label><Select value={budgetForm.currency} onValueChange={value => setBudgetForm({ ...budgetForm, currency: value as CurrencyCode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Taux EUR/MGA</Label><Input type="number" min="1" value={budgetForm.exchangeRate} onChange={event => setBudgetForm({ ...budgetForm, exchangeRate: event.target.value })} disabled={budgetForm.currency === "EUR"} /></div></div>
+                    <div className="rounded-2xl border border-slate-200 overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Catégorie</TableHead><TableHead>Montant</TableHead><TableHead>Note</TableHead><TableHead className="w-12"></TableHead></TableRow></TableHeader><TableBody>{budgetItems.map((item, index) => <TableRow key={index}><TableCell><Input value={item.label} onChange={event => updateBudgetItem(index, "label", event.target.value)} placeholder="Loyer, logiciel…" /></TableCell><TableCell><Input value={item.category} onChange={event => updateBudgetItem(index, "category", event.target.value)} placeholder="Fixe, SaaS…" /></TableCell><TableCell><Input type="number" min="0" value={item.amount} onChange={event => updateBudgetItem(index, "amount", event.target.value)} /></TableCell><TableCell><Input value={item.note} onChange={event => updateBudgetItem(index, "note", event.target.value)} placeholder="Optionnel" /></TableCell><TableCell><Button type="button" size="icon" variant="ghost" onClick={() => setBudgetItems(items => items.length > 1 ? items.filter((_, itemIndex) => itemIndex !== index) : items)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></TableCell></TableRow>)}</TableBody></Table><div className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setBudgetItems(items => [...items, { label: "", category: "", amount: "0", note: "" }])}><Plus className="mr-1 h-3.5 w-3.5" /> Ajouter une dépense</Button></div></div>
+                    <div className="space-y-2"><Label>Notes</Label><Textarea value={budgetForm.notes} onChange={event => setBudgetForm({ ...budgetForm, notes: event.target.value })} /></div>
+                  </div>
+                  <DialogFooter><Button variant="outline" onClick={() => setIsBudgetOpen(false)}>Annuler</Button><Button onClick={handleSaveBudgetSheet} disabled={createBudgetSheetMutation.isPending} className="bg-emerald-600 hover:bg-emerald-500 text-white">{createBudgetSheetMutation.isPending ? "Enregistrement…" : "Enregistrer la feuille"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <Card className="border-slate-200 shadow-sm bg-white"><CardHeader><CardTitle>Feuilles enregistrées</CardTitle><CardDescription>Une feuille convertie est verrouillée pour conserver la traçabilité de la sortie.</CardDescription></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Feuille</TableHead><TableHead>Mois</TableHead><TableHead>Dépenses</TableHead><TableHead>Devise</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{budgetSheetsQuery.data?.map(sheet => { const items = parseBudgetItems(sheet.itemsJson); return <TableRow key={sheet.id}><TableCell><div className="font-semibold text-slate-900">{sheet.title}</div><div className="text-xs text-slate-500">{items.length} ligne(s){sheet.notes ? ` · ${sheet.notes}` : ""}</div></TableCell><TableCell>{sheet.monthKey}</TableCell><TableCell className="font-semibold text-emerald-700">{formatCurrency(Number(sheet.amountInCurrency || sheet.totalAmount), sheet.currency === "MGA" ? "MGA" : "EUR")}</TableCell><TableCell><Badge variant="outline">{sheet.currency}</Badge><div className="text-xs text-slate-500">1 EUR = {Number(sheet.exchangeRate || 1).toLocaleString("fr-FR")} MGA</div></TableCell><TableCell><Badge variant={sheet.status === "converti_caisse" ? "default" : "secondary"}>{sheet.status === "converti_caisse" ? "Converti en caisse" : sheet.status}</Badge></TableCell><TableCell className="text-right"><div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="outline" disabled={sheet.status === "converti_caisse" || convertBudgetSheetMutation.isPending} onClick={() => convertBudgetSheetMutation.mutate({ budgetSheetId: sheet.id })} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><WalletCards className="mr-1 h-3.5 w-3.5" /> Vers caisse</Button><Button size="sm" variant="outline" disabled={sheet.status === "converti_caisse"} onClick={() => { if (window.confirm("Supprimer cette feuille budgétaire ?")) deleteBudgetSheetMutation.mutate({ id: sheet.id }); }} className="text-rose-700"><Trash2 className="h-3.5 w-3.5" /></Button></div></TableCell></TableRow>; })}{(!budgetSheetsQuery.data || budgetSheetsQuery.data.length === 0) && <TableRow><TableCell colSpan={6} className="py-10 text-center text-slate-500">Aucune feuille budgétaire enregistrée.</TableCell></TableRow>}</TableBody></Table></CardContent></Card>
           </TabsContent>
         </Tabs>
       </main>

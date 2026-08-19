@@ -7,7 +7,7 @@ import * as db from "./db";
 import { 
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices 
+  quotes, invoices, dynamicStats, budgetSheets 
 } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { storagePut } from "./storage";
@@ -587,6 +587,183 @@ export const appRouter = router({
         },
         insights,
       };
+    }),
+  }),
+
+  // Module Statistiques dynamiques & Budget Planner
+  planning: router({
+    listDynamicStats: protectedProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional(),
+      clientName: z.string().trim().optional(),
+      agentName: z.string().trim().optional(),
+      serviceName: z.string().trim().optional(),
+    }).optional()).query(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const rows = await database.select().from(dynamicStats);
+      return rows.filter((row) => {
+        if (input?.monthKey && row.monthKey !== input.monthKey) return false;
+        if (input?.clientName && row.clientName !== input.clientName) return false;
+        if (input?.agentName && row.agentName !== input.agentName) return false;
+        if (input?.serviceName && row.serviceName !== input.serviceName) return false;
+        return true;
+      });
+    }),
+    statFilterOptions: protectedProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const rows = await database.select().from(dynamicStats);
+      const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr"));
+      return {
+        months: unique(rows.map((row) => row.monthKey)),
+        clients: unique(rows.map((row) => row.clientName)),
+        agents: unique(rows.map((row) => row.agentName)),
+        services: unique(rows.map((row) => row.serviceName)),
+      };
+    }),
+    createDynamicStat: protectedProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM"),
+      clientName: z.string().trim().min(1, "Le client est obligatoire"),
+      agentName: z.string().trim().min(1, "L’agent est obligatoire"),
+      serviceName: z.string().trim().min(1, "Le service est obligatoire"),
+      revenue: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0, "Le CA est invalide"),
+      expenses: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0, "Les dépenses sont invalides"),
+      workDays: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0, "Les jours travaillés sont invalides"),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.insert(dynamicStats).values({ ...input, notes: input.notes || null } as any);
+      return { success: true };
+    }),
+    updateDynamicStat: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM"),
+      clientName: z.string().trim().min(1),
+      agentName: z.string().trim().min(1),
+      serviceName: z.string().trim().min(1),
+      revenue: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0),
+      expenses: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0),
+      workDays: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const { id, ...values } = input;
+      await database.update(dynamicStats).set({ ...values, notes: values.notes || null } as any).where(eq(dynamicStats.id, id));
+      return { success: true };
+    }),
+    deleteDynamicStat: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      await database.delete(dynamicStats).where(eq(dynamicStats.id, input.id));
+      return { success: true };
+    }),
+    listBudgetSheets: protectedProcedure.query(async () => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      return await database.select().from(budgetSheets);
+    }),
+    createBudgetSheet: protectedProcedure.input(z.object({
+      title: z.string().trim().min(1, "Le titre est obligatoire"),
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM"),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      exchangeRate: z.string().trim().optional(),
+      items: z.array(z.object({
+        label: z.string().trim().min(1),
+        category: z.string().trim().min(1),
+        amount: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0),
+        note: z.string().trim().optional(),
+      })).min(1, "Ajoutez au moins une dépense"),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const amountInCurrency = input.items.reduce((sum, item) => sum + amountOf(item.amount), 0);
+      const normalized = normalizeCurrencyAmount(amountInCurrency, input.currency, input.exchangeRate);
+      await database.insert(budgetSheets).values({
+        title: input.title,
+        monthKey: input.monthKey,
+        itemsJson: JSON.stringify(input.items),
+        totalAmount: String(normalized.amount),
+        amountInCurrency: String(normalized.amountInCurrency),
+        currency: normalized.currency,
+        exchangeRate: String(normalized.exchangeRate),
+        status: "brouillon",
+        notes: input.notes || null,
+      } as any);
+      return { success: true, ...normalized };
+    }),
+    updateBudgetSheet: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      title: z.string().trim().min(1),
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+      currency: z.enum(["EUR", "MGA"]),
+      exchangeRate: z.string().trim().optional(),
+      items: z.array(z.object({
+        label: z.string().trim().min(1),
+        category: z.string().trim().min(1),
+        amount: z.string().trim().refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0),
+        note: z.string().trim().optional(),
+      })).min(1),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select().from(budgetSheets).where(eq(budgetSheets.id, input.id)).limit(1);
+      if (!existing[0]) throw new Error("Feuille budgétaire introuvable");
+      if (existing[0].status === "converti_caisse") throw new Error("Une feuille convertie en caisse ne peut plus être modifiée");
+      const amountInCurrency = input.items.reduce((sum, item) => sum + amountOf(item.amount), 0);
+      const normalized = normalizeCurrencyAmount(amountInCurrency, input.currency, input.exchangeRate);
+      await database.update(budgetSheets).set({
+        title: input.title,
+        monthKey: input.monthKey,
+        itemsJson: JSON.stringify(input.items),
+        totalAmount: String(normalized.amount),
+        amountInCurrency: String(normalized.amountInCurrency),
+        currency: normalized.currency,
+        exchangeRate: String(normalized.exchangeRate),
+        notes: input.notes || null,
+        status: "brouillon",
+      } as any).where(eq(budgetSheets.id, input.id));
+      return { success: true, ...normalized };
+    }),
+    deleteBudgetSheet: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: budgetSheets.id, status: budgetSheets.status }).from(budgetSheets).where(eq(budgetSheets.id, input.id)).limit(1);
+      if (!existing[0]) throw new Error("Feuille budgétaire introuvable");
+      if (existing[0].status === "converti_caisse") throw new Error("Une feuille convertie en caisse ne peut plus être supprimée");
+      await database.delete(budgetSheets).where(eq(budgetSheets.id, input.id));
+      return { success: true };
+    }),
+    convertBudgetSheetToTransaction: protectedProcedure.input(z.object({
+      budgetSheetId: z.number().int().positive(),
+      paymentMethod: z.string().trim().min(1).default("Virement"),
+      date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const rows = await database.select().from(budgetSheets).where(eq(budgetSheets.id, input.budgetSheetId)).limit(1);
+      const sheet = rows[0];
+      if (!sheet) throw new Error("Feuille budgétaire introuvable");
+      if (sheet.status === "converti_caisse") throw new Error("Cette feuille est déjà convertie en sortie de caisse");
+      const reference = `BUDGET-${sheet.id}`;
+      const existingTransactions = await db.getCashTransactions();
+      if (existingTransactions.some((transaction) => transaction.reference === reference)) throw new Error("Cette feuille possède déjà une sortie de caisse associée");
+      const amountInCurrency = amountOf(sheet.amountInCurrency) || amountOf(sheet.totalAmount);
+      const normalized = normalizeCurrencyAmount(amountInCurrency, sheet.currency, sheet.exchangeRate);
+      await database.insert(cashTransactions).values({
+        type: "sortie",
+        category: "Budget Planner",
+        ...normalized,
+        date: input.date || new Date().toISOString().slice(0, 10),
+        paymentMethod: input.paymentMethod,
+        reference,
+        description: `Conversion de la feuille budgétaire « ${sheet.title} » en sortie de caisse`,
+      } as any);
+      await database.update(budgetSheets).set({ status: "converti_caisse" }).where(eq(budgetSheets.id, sheet.id));
+      return { success: true, reference, ...normalized };
     }),
   }),
 

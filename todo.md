@@ -92,3 +92,8 @@
 - [x] Permettre de convertir une facture payée en entrée de caisse (comptabilité) avec montant convertible en Ariary ou Euro selon le choix
 - [x] Mettre à jour les exports Excel/CSV et les tests unitaires Vitest
 - [x] Valider avec TypeScript, Vitest et un checkpoint final
+
+- [ ] Créer une section statistiques dynamiques en tableur avec alimentation mensuelle et filtres par client, agent, service et mois
+- [ ] Créer une section Budget Planner pour enregistrer les dépenses récurrentes, sauvegarder la feuille et convertir le total en sortie de caisse
+- [ ] Valider avec les tests unitaires Vitest et TypeScript
+- [ ] Créer le checkpoint final de la version enrichie
