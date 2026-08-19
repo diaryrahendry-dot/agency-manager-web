@@ -1093,19 +1093,21 @@ export default function Home() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900/80 border border-slate-800 p-8 rounded-2xl shadow-2xl backdrop-blur-xl text-center space-y-6">
-          <div className="inline-flex p-4 bg-indigo-600/20 text-indigo-400 rounded-2xl border border-indigo-500/30">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(251,191,36,0.28),_transparent_32%),linear-gradient(135deg,#075985_0%,#0f766e_48%,#c2410c_100%)] text-white flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white/95 text-foreground border border-white/70 p-8 rounded-[2rem] shadow-2xl shadow-sky-950/25 backdrop-blur-xl text-center space-y-6">
+          <div className="relative inline-flex p-4 bg-gradient-to-br from-sky-400 to-teal-500 text-white rounded-[1.5rem] shadow-lg shadow-sky-500/25">
             <Briefcase className="w-10 h-10" />
+            <span className="absolute -right-2 -top-2 text-xl" aria-hidden="true">✦</span>
           </div>
           <div className="space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight">AgencyManager Pro</h1>
-            <p className="text-slate-400 text-sm">
-              Logiciel de gestion d’agence haut de gamme : RH, Comptabilité, CRM Kanban, Base Clients et Facturation.
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-orange-600">Bienvenue à bord</p>
+            <h1 className="text-3xl font-black tracking-tight med-gradient-header">AgencyManager Pro</h1>
+            <p className="text-muted-foreground text-sm leading-6">
+              Votre cockpit doux et solaire pour gérer RH, comptabilité, CRM, clients et facturation.
             </p>
           </div>
-          <Button onClick={() => startLogin()} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl shadow-lg transition-all">
-            Connexion sécurisée
+          <Button onClick={() => startLogin()} className="w-full bg-gradient-to-r from-sky-500 via-teal-500 to-orange-400 hover:brightness-105 text-white font-bold py-3 rounded-2xl shadow-lg shadow-sky-500/20 transition-all active:scale-[0.98]">
+            Connexion sécurisée <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -1113,62 +1115,65 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_12%_0%,_rgba(125,211,252,0.18),_transparent_28%),radial-gradient(circle_at_88%_8%,_rgba(251,146,60,0.18),_transparent_26%),#fffaf2] text-foreground flex flex-col font-sans">
       {/* Top Header */}
-      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-md">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-indigo-600 rounded-xl text-white shadow">
-            <Briefcase className="w-6 h-6" />
+      <header className="sticky top-0 z-50 border-b border-white/20 bg-slate-950/95 px-4 py-3 text-white shadow-lg shadow-sky-950/10 backdrop-blur-xl sm:px-6 sm:py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="relative rounded-2xl bg-gradient-to-br from-sky-400 via-teal-400 to-orange-400 p-2.5 text-white shadow-lg shadow-sky-950/25">
+              <Briefcase className="h-6 w-6" />
+              <span className="absolute -right-1 -top-2 text-xs text-amber-300" aria-hidden="true">✦</span>
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-black tracking-tight sm:text-xl">AgencyManager <span className="text-amber-300">Pro</span></h1>
+              <p className="truncate text-[11px] text-sky-100/70 sm:text-xs">Gestion d’agence, avec soleil & méthode</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-lg tracking-tight">AgencyManager Pro</h1>
-            <p className="text-xs text-slate-400">Gestion intégrée d'agence & ERP</p>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-semibold">{user?.name || "Administrateur"}</p>
+              <p className="text-xs text-teal-200">● Mode connecté</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => logout()} className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white">
+              Déconnexion
+            </Button>
           </div>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-medium">{user?.name || "Administrateur"}</p>
-            <p className="text-xs text-indigo-400">Mode Connecté</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => logout()} className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700">
-            Déconnexion
-          </Button>
         </div>
       </header>
 
       {/* Main Container with Tabs */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-6 overflow-x-hidden">
+      <main className="container flex-1 space-y-6 overflow-x-hidden py-4 md:py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <div className="w-full overflow-x-auto pb-2 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <TabsList className="bg-white border border-slate-200 p-1.5 rounded-2xl shadow-sm flex w-max min-w-max space-x-1">
-              <TabsTrigger value="dashboard" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+            <TabsList className="flex w-max min-w-max space-x-1 rounded-3xl border border-sky-100 bg-white/85 p-1.5 shadow-sm shadow-sky-900/5 backdrop-blur">
+              <TabsTrigger value="dashboard" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <TrendingUp className="w-4 h-4 mr-2" /> Tableau de Bord
               </TabsTrigger>
-              {!isCollaborator && <TabsTrigger value="hr" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="hr" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <Users className="w-4 h-4 mr-2" /> RH & Agents
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="accounting" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="accounting" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <DollarSign className="w-4 h-4 mr-2" /> Comptabilité
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="crm" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="crm" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <Kanban className="w-4 h-4 mr-2" /> CRM Leads
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="clients" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="clients" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <Building2 className="w-4 h-4 mr-2" /> Base Clients
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="catalog" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="catalog" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <Briefcase className="w-4 h-4 mr-2" /> Catalogue
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="billing" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="billing" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <FileText className="w-4 h-4 mr-2" /> Devis & Factures
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="stats" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="stats" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <FileSpreadsheet className="w-4 h-4 mr-2" /> Statistiques
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="budget" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="budget" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <WalletCards className="w-4 h-4 mr-2" /> Budget Planner
               </TabsTrigger>}
-              {!isCollaborator && <TabsTrigger value="settings" className="rounded-xl px-4 py-2 font-medium data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              {!isCollaborator && <TabsTrigger value="settings" className="rounded-2xl px-4 py-2 font-semibold text-slate-600 transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md">
                 <Settings className="w-4 h-4 mr-2" /> Paramètres{isAdmin ? " · Admin" : ""}
               </TabsTrigger>}
             </TabsList>

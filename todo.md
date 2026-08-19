@@ -196,3 +196,9 @@
 - [x] Intégrer la carte de gestion des avances dans le planning superviseur avec le bouton de sortie de caisse
 - [x] Valider la synchronisation du statut RH et l’enregistrement comptable
 - [x] Vérifier avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Définir la palette de couleurs méditerranéenne kawaii (bleu azur, terracotta chaud, abricot doux, blanc sable, accents lavande et menthe) dans `client/src/index.css`
+- [x] Adoucir les rayons de bordure (`rounded-2xl`, `rounded-3xl`), les ombres chaleureuses et les typographies des cartes et en-têtes
+- [x] Intégrer des touches visuelles ludiques et accueillantes (badges ensoleillés, icônes pastel, en-têtes chaleureux) sur tout le dashboard
+- [x] Vérifier la lisibilité, le contraste et le responsive (desktop, tablette, mobile) des modules RH, comptabilité, CRM et facturation
+- [x] Exécuter les 50 tests Vitest, le build de production et sauvegarder le checkpoint final de la refonte visuelle
