@@ -8,10 +8,10 @@ import * as db from "./db";
 import { 
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
-  quotes, invoices, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers,
+  quotes, invoices, creditNotes, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers,
   rolePermissions, supervisorTeams
 } from "../drizzle/schema";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
 import { PROJECT_TEMPLATE_KEYS } from "../shared/projectTemplates";
@@ -739,6 +739,82 @@ export const appRouter = router({
         description: `Conversion de la facture payée ${invoice.invoiceNumber} en entrée de caisse`,
       } as any);
       return { success: true, invoiceNumber: invoice.invoiceNumber, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
+    }),
+    creditNotes: protectedProcedure.query(async ({ ctx }) => {
+      const database = await db.getDb();
+      if (!database) return [];
+      return await database.select().from(creditNotes).where(projectScope(creditNotes.projectId, ctx.user.activeProjectId)).orderBy(desc(creditNotes.id));
+    }),
+    createCreditNote: protectedProcedure.input(z.object({
+      invoiceId: z.number().int().positive(),
+      reason: z.string().trim().min(3, "Le motif de l'avoir est obligatoire"),
+      items: z.array(z.object({
+        label: z.string().trim().min(1),
+        quantity: z.number().positive(),
+        unitPrice: z.string().trim().refine(v => Number.isFinite(Number(v)) && Number(v) >= 0),
+        taxRate: z.string().trim().optional(),
+        discountType: z.enum(["none", "percent", "fixed"]).optional(),
+        discountValue: z.string().trim().optional(),
+      })).min(1, "Ajoutez au moins une ligne d'avoir"),
+      discountType: z.enum(["none", "percent", "fixed"]).default("none"),
+      discountValue: z.string().trim().optional(),
+      globalTaxRate: z.string().trim().optional(),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      exchangeRate: z.string().trim().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const invoiceRows = await database.select().from(invoices).where(and(eq(invoices.id, input.invoiceId), projectScope(invoices.projectId, ctx.user.activeProjectId))).limit(1);
+      const invoice = invoiceRows[0];
+      if (!invoice) throw new Error("Facture d'origine introuvable");
+      const computed = calculateCommercialTotals(JSON.stringify(input.items), "0", input.discountType, input.discountValue || "0", input.globalTaxRate || "0");
+      const creditNoteNumber = `AV-${Date.now().toString().slice(-6)}`;
+      const rate = input.exchangeRate ?? String(DEFAULT_EUR_TO_MGA);
+      const clientRows = await database.select({ companyName: clients.companyName }).from(clients).where(eq(clients.id, invoice.clientId)).limit(1);
+      const clientName = clientRows[0]?.companyName || `Client #${invoice.clientId}`;
+      await database.insert(creditNotes).values({
+        projectId: ctx.user.activeProjectId,
+        invoiceId: invoice.id,
+        creditNoteNumber,
+        clientId: invoice.clientId,
+        clientName,
+        amount: computed.totalAmount,
+        currency: input.currency,
+        exchangeRate: String(rate),
+        status: "émis",
+        itemsJson: JSON.stringify(input.items),
+        reason: input.reason,
+      } as any);
+      return { success: true, creditNoteNumber, amount: computed.totalAmount };
+    }),
+    convertCreditNoteToTransaction: protectedProcedure.input(z.object({
+      creditNoteId: z.number().int().positive(),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      exchangeRate: z.string().trim().optional(),
+      paymentMethod: z.string().trim().min(1).default("Remboursement / Virement"),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const cnRows = await database.select().from(creditNotes).where(and(eq(creditNotes.id, input.creditNoteId), projectScope(creditNotes.projectId, ctx.user.activeProjectId))).limit(1);
+      const cn = cnRows[0];
+      if (!cn) throw new Error("Avoir introuvable");
+      if (cn.status === "converti_caisse") throw new Error("Cet avoir a déjà été converti en sortie de caisse");
+      if (cn.status === "annulé") throw new Error("Un avoir annulé ne peut pas être converti");
+      const rate = input.exchangeRate ?? String(DEFAULT_EUR_TO_MGA);
+      const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(cn.amount), Number(rate))) : String(cn.amount);
+      const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
+      await database.insert(cashTransactions).values({
+        projectId: ctx.user.activeProjectId,
+        type: "sortie",
+        category: "Avoir / Remboursement",
+        ...normalized,
+        date: new Date().toISOString().slice(0, 10),
+        paymentMethod: input.paymentMethod,
+        reference: cn.creditNoteNumber,
+        description: `Sortie de caisse suite à l'avoir ${cn.creditNoteNumber} (${cn.reason})`,
+      } as any);
+      await database.update(creditNotes).set({ status: "converti_caisse" }).where(and(eq(creditNotes.id, input.creditNoteId), projectScope(creditNotes.projectId, ctx.user.activeProjectId)));
+      return { success: true, creditNoteNumber: cn.creditNoteNumber, ...normalized };
     }),
     summary: protectedProcedure.query(async ({ ctx }) => {
       const database = await db.getDb();

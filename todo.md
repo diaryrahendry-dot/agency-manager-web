@@ -180,4 +180,9 @@
 - [x] Ajouter un endpoint planifié idempotent pour décompter les congés approuvés dont la période est terminée
 - [x] Prévoir l’activation du traitement planifié après déploiement sans utiliser de timer dans le serveur
 - [x] Ajouter les tests de solde, validation, annulation, modification et permissions RH
-- [ ] Vérifier le responsive agent/superviseur et sauvegarder un checkpoint final
+- [x] Vérifier le responsive agent/superviseur et sauvegarder un checkpoint final
+
+- [x] Ajouter la table `creditNotes` ou les champs d’avoir dans le schéma Drizzle et générer la migration
+- [x] Créer les procédures tRPC `billing.createCreditNote`, `billing.listCreditNotes` et `accounting.convertCreditNoteToTransaction`
+- [x] Intégrer le bouton de création d’avoir et la liste des avoirs dans l’interface Facturation
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final

@@ -289,6 +289,25 @@ export type DocumentRecord = typeof documents.$inferSelect;
 export type Quote = typeof quotes.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 
+// Table des avoirs (crédits) rattachés aux factures
+export const creditNotes = mysqlTable("credit_notes", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId"),
+  invoiceId: int("invoiceId").notNull(),
+  creditNoteNumber: varchar("creditNoteNumber", { length: 50 }).notNull(),
+  clientId: int("clientId").notNull(),
+  clientName: varchar("clientName", { length: 150 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), // montant de l'avoir en EUR stocké
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("MGA").notNull(),
+  exchangeRate: decimal("exchangeRate", { precision: 12, scale: 6 }).default("1").notNull(),
+  status: mysqlEnum("status", ["brouillon", "émis", "converti_caisse", "annulé"]).default("brouillon").notNull(),
+  itemsJson: text("itemsJson").notNull(), // lignes d'avoir
+  reason: text("reason").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CreditNote = typeof creditNotes.$inferSelect;
+
 // Catalogue de produits et prestations réutilisables dans les devis et factures
 export const catalogItems = mysqlTable("catalog_items", {
   id: int("id").autoincrement().primaryKey(),
