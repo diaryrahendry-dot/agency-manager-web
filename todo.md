@@ -88,7 +88,7 @@
 - [x] Valider avec les tests unitaires Vitest et TypeScript
 - [x] Créer le checkpoint final de la mise à jour MGA
 
-- [ ] Ajouter la sélection de la devise (EUR ou MGA) pour chaque mouvement comptable dans la base et l’interface
-- [ ] Permettre de convertir une facture payée en entrée de caisse (comptabilité) avec montant convertible en Ariary ou Euro selon le choix
-- [ ] Mettre à jour les exports Excel/CSV et les tests unitaires Vitest
-- [ ] Valider avec TypeScript, Vitest et un checkpoint final
+- [x] Ajouter la sélection de la devise (EUR ou MGA) pour chaque mouvement comptable dans la base et l’interface
+- [x] Permettre de convertir une facture payée en entrée de caisse (comptabilité) avec montant convertible en Ariary ou Euro selon le choix
+- [x] Mettre à jour les exports Excel/CSV et les tests unitaires Vitest
+- [x] Valider avec TypeScript, Vitest et un checkpoint final
