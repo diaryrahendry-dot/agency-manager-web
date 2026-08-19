@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { startLogin } from "@/const";
-import { DEFAULT_EUR_TO_MGA, convertEurToMga, convertMgaToEur, formatMGA } from "@shared/currency";
+import { DEFAULT_EUR_TO_MGA, convertEurToMga, convertMgaToEur, formatCurrency, formatMGA, type CurrencyCode } from "@shared/currency";
 import { buildCommercialDocumentHtml, getCommercialTableColumnCount, type CommercialDocumentData } from "@shared/commercialDocuments";
 import { CommercialMGAColumnCell, CommercialMGAColumnHeader } from "@/components/CommercialMGAColumns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -109,7 +109,11 @@ export default function Home() {
   const [isLeaveEditOpen, setIsLeaveEditOpen] = useState(false);
   const [editingLeaveId, setEditingLeaveId] = useState<number | null>(null);
   const [leaveEditForm, setLeaveEditForm] = useState({ leaveType: "Annuel", startDate: "2026-08-19", endDate: "2026-08-19", daysCount: 1, reason: "" });
-  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "7500000", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web", internalNote: "" });
+  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "7500000", currency: "MGA" as CurrencyCode, exchangeRate: String(DEFAULT_EUR_TO_MGA), date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web", internalNote: "" });
+  const [invoiceCashConversion, setInvoiceCashConversion] = useState<{ id: number; number: string; totalAmount: string } | null>(null);
+  const [invoiceCashCurrency, setInvoiceCashCurrency] = useState<CurrencyCode>("MGA");
+  const [invoiceCashRate, setInvoiceCashRate] = useState(String(DEFAULT_EUR_TO_MGA));
+  const [invoiceCashPaymentMethod, setInvoiceCashPaymentMethod] = useState("Virement");
 
   const [isLeadOpen, setIsLeadOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "5000.00", priority: "moyenne" as const, status: "nouveau" as const, nextContactDate: "2026-08-25", notes: "" });
@@ -139,8 +143,10 @@ export default function Home() {
   };
 
   const openTransactionEdit = (transaction: NonNullable<typeof transactionsQuery.data>[number]) => {
+    const currency = (transaction.currency === "MGA" ? "MGA" : "EUR") as CurrencyCode;
+    const amountInCurrency = Number(transaction.amountInCurrency || transaction.amount);
     setEditingTxId(transaction.id);
-    setTxForm({ type: transaction.type, category: transaction.category, amount: String(Math.round(convertEurToMga(Number(transaction.amount), Number(eurToMgaRate)))), date: String(transaction.date).slice(0, 10), paymentMethod: transaction.paymentMethod, reference: transaction.reference || "", description: transaction.description, internalNote: transaction.internalNote || "" });
+    setTxForm({ type: transaction.type, category: transaction.category, amount: currency === "MGA" ? String(Math.round(amountInCurrency)) : String(amountInCurrency), currency, exchangeRate: String(transaction.exchangeRate || (currency === "MGA" ? currentEurToMgaRate : 1)), date: String(transaction.date).slice(0, 10), paymentMethod: transaction.paymentMethod, reference: transaction.reference || "", description: transaction.description, internalNote: transaction.internalNote || "" });
     setIsTxEditOpen(true);
   };
 
@@ -402,14 +408,28 @@ export default function Home() {
 
   const convertQuoteMutation = trpc.accounting.convertQuoteToTransaction.useMutation({
     onSuccess: (result) => {
-      toast.success(`${result.quoteNumber} a été ajouté à la comptabilité.`);
+      toast.success(`${result.quoteNumber} a été ajouté à la comptabilité en ${result.currency}.`);
       utils.billing.listQuotes.invalidate();
       utils.accounting.listTransactions.invalidate();
       utils.accounting.summary.invalidate();
       utils.accounting.revenueReport.invalidate();
       utils.accounting.automaticReport.invalidate();
+      utils.accounting.monthlyReport.invalidate();
     },
     onError: (err) => toast.error("Conversion impossible : " + err.message)
+  });
+
+  const convertPaidInvoiceMutation = trpc.accounting.convertPaidInvoiceToTransaction.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.invoiceNumber} a été ajouté à la caisse en ${result.currency}.`);
+      setInvoiceCashConversion(null);
+      utils.accounting.listTransactions.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Conversion de la facture impossible : " + err.message)
   });
 
   const createInvoiceMutation = trpc.billing.createInvoice.useMutation({
@@ -444,15 +464,23 @@ export default function Home() {
 
   const handleCreateTransaction = () => {
     if (!Number.isFinite(Number(txForm.amount)) || Number(txForm.amount) <= 0) {
-      toast.error("Indiquez un montant comptable positif en Ariary.");
+      toast.error(`Indiquez un montant comptable positif en ${txForm.currency}.`);
       return;
     }
-    createTxMutation.mutate({ ...txForm, amount: toStoredEur(txForm.amount.trim()), reference: txForm.reference.trim(), description: txForm.description.trim(), internalNote: txForm.internalNote.trim() });
+    if (txForm.currency === "MGA" && (!Number.isFinite(Number(txForm.exchangeRate)) || Number(txForm.exchangeRate) <= 0)) {
+      toast.error("Indiquez un taux EUR/MGA positif pour ce mouvement.");
+      return;
+    }
+    createTxMutation.mutate({ ...txForm, amount: txForm.amount.trim(), reference: txForm.reference.trim(), description: txForm.description.trim(), internalNote: txForm.internalNote.trim() });
   };
 
   const handleUpdateTransaction = () => {
     if (!editingTxId) return;
-    updateTxMutation.mutate({ id: editingTxId, ...txForm, amount: toStoredEur(txForm.amount.trim()), reference: txForm.reference.trim(), internalNote: txForm.internalNote.trim() });
+    if (txForm.currency === "MGA" && (!Number.isFinite(Number(txForm.exchangeRate)) || Number(txForm.exchangeRate) <= 0)) {
+      toast.error("Indiquez un taux EUR/MGA positif pour ce mouvement.");
+      return;
+    }
+    updateTxMutation.mutate({ id: editingTxId, ...txForm, amount: txForm.amount.trim(), reference: txForm.reference.trim(), internalNote: txForm.internalNote.trim() });
   };
 
   const handleSaveTimeEntry = () => {
@@ -516,9 +544,13 @@ export default function Home() {
   // Export CSV Comptabilité
   const exportAccountingCSV = () => {
     const txs = transactionsQuery.data || [];
-    let csv = "ID,Type,Categorie,MontantEUR,MontantMGA,Date,ModePaiement,Reference,Description\n";
+    let csv = "ID,Type,Categorie,Devise,MontantSaisi,MontantEURReference,MontantMGAEquivalent,TauxEURMGA,Date,ModePaiement,Reference,Description\n";
     txs.forEach(t => {
-      csv += `${t.id},${t.type},"${t.category}",${Number(t.amount).toFixed(2)},${Math.round(convertEurToMga(Number(t.amount), currentEurToMgaRate))},${t.date},${t.paymentMethod},"${t.reference || ''}","${t.description.replace(/"/g, '""')}"\n`;
+      const currency = t.currency === "MGA" ? "MGA" : "EUR";
+      const amountInCurrency = Number(t.amountInCurrency || t.amount);
+      const exchangeRate = Number(t.exchangeRate || (currency === "MGA" ? currentEurToMgaRate : 1));
+      const amountMga = currency === "MGA" ? amountInCurrency : Math.round(convertEurToMga(Number(t.amount), currentEurToMgaRate));
+      csv += `${t.id},${t.type},"${t.category}",${currency},${amountInCurrency.toFixed(2)},${Number(t.amount).toFixed(2)},${amountMga},${exchangeRate.toFixed(2)},${t.date},${t.paymentMethod},"${t.reference || ''}","${t.description.replace(/"/g, '""')}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -537,7 +569,7 @@ export default function Home() {
       const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Information: "Aucune donnée" }]);
       XLSX.utils.book_append_sheet(workbook, worksheet, name.slice(0, 31));
     };
-    appendSheet("Mouvements", (transactionsQuery.data || []).map(tx => ({ ID: tx.id, Type: tx.type, Catégorie: tx.category, MontantEUR: Number(tx.amount), MontantMGA: convertEurToMga(Number(tx.amount), currentEurToMgaRate), Date: String(tx.date), Mode: tx.paymentMethod, Référence: tx.reference || "", Description: tx.description, NoteInterne: tx.internalNote || "" })));
+    appendSheet("Mouvements", (transactionsQuery.data || []).map(tx => { const currency = tx.currency === "MGA" ? "MGA" : "EUR"; const amountInCurrency = Number(tx.amountInCurrency || tx.amount); const exchangeRate = Number(tx.exchangeRate || (currency === "MGA" ? currentEurToMgaRate : 1)); return { ID: tx.id, Type: tx.type, Catégorie: tx.category, Devise: currency, MontantSaisi: amountInCurrency, MontantEURReference: Number(tx.amount), MontantMGAEquivalent: currency === "MGA" ? amountInCurrency : convertEurToMga(Number(tx.amount), currentEurToMgaRate), TauxEURMGA: exchangeRate, Date: String(tx.date), Mode: tx.paymentMethod, Référence: tx.reference || "", Description: tx.description, NoteInterne: tx.internalNote || "" }; }));
     appendSheet("Agents RH", (agentsQuery.data || []).map(agent => ({ ID: agent.id, Nom: agent.name, Email: agent.email, Téléphone: agent.phone || "", Poste: agent.position, Département: agent.department, Embauche: String(agent.hireDate), SalaireEUR: Number(agent.salary), SalaireMGA: convertEurToMga(Number(agent.salary), currentEurToMgaRate), Contrat: agent.contractType, Statut: agent.status, Adresse: agent.address || "", ContactUrgence: agent.emergencyContact || "", Notes: agent.notes || "" })));
     appendSheet("Pointages", (timeEntriesQuery.data || []).map(entry => ({ ID: entry.id, AgentID: entry.agentId, Date: String(entry.date), Heures: Number(entry.hoursWorked), Statut: entry.status, Notes: entry.notes || "" })));
     appendSheet("Congés", (leavesQuery.data || []).map(leave => ({ ID: leave.id, AgentID: leave.agentId, Type: leave.leaveType, Début: String(leave.startDate), Fin: String(leave.endDate), Jours: leave.daysCount, Statut: leave.status, Motif: leave.reason || "" })));
@@ -799,7 +831,7 @@ export default function Home() {
                           </div>
                         </div>
                         <span className={`font-bold text-sm ${tx.type === 'entrée' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {tx.type === 'entrée' ? '+' : '-'}{formatMGA(Number(tx.amount), currentEurToMgaRate)}
+                          {tx.type === 'entrée' ? '+' : '-'}{formatCurrency(Number(tx.amountInCurrency || tx.amount), tx.currency === "MGA" ? "MGA" : "EUR")}
                         </span>
                       </div>
                     ))}
@@ -1209,11 +1241,20 @@ export default function Home() {
                         <Label>Catégorie</Label>
                         <Input value={txForm.category} onChange={e => setTxForm({...txForm, category: e.target.value})} placeholder="Vente client, Loyer, Fournitures..." />
                       </div>
-                      <div className="space-y-2">
-                        <Label>Montant comptable (Ar)</Label>
-                        <Input type="number" min="0" step="1" value={txForm.amount} onChange={e => setTxForm({...txForm, amount: e.target.value})} placeholder="7500000" />
-                        <p className="text-[11px] text-slate-500">Saisie en Ariary · taux de référence : 1 € = {currentEurToMgaRate.toLocaleString("fr-FR")} Ar</p>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Devise du mouvement</Label>
+                          <Select value={txForm.currency} onValueChange={value => setTxForm({ ...txForm, currency: value as CurrencyCode, exchangeRate: value === "MGA" ? (txForm.exchangeRate === "1" ? String(DEFAULT_EUR_TO_MGA) : txForm.exchangeRate) : "1" })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Montant ({txForm.currency})</Label>
+                          <Input type="number" min="0" step={txForm.currency === "MGA" ? "1" : "0.01"} value={txForm.amount} onChange={e => setTxForm({...txForm, amount: e.target.value})} placeholder={txForm.currency === "MGA" ? "7500000" : "1500.00"} />
+                        </div>
                       </div>
+                      {txForm.currency === "MGA" && <div className="space-y-2"><Label>Taux appliqué (1 EUR = MGA)</Label><Input type="number" min="1" step="1" value={txForm.exchangeRate} onChange={e => setTxForm({ ...txForm, exchangeRate: e.target.value })} /><p className="text-[11px] text-slate-500">Le montant de référence sera conservé en EUR pour les rapports consolidés.</p></div>}
                       <div className="space-y-2">
                         <Label>Date</Label>
                         <Input type="date" value={txForm.date} onChange={e => setTxForm({...txForm, date: e.target.value})} />
@@ -1238,7 +1279,8 @@ export default function Home() {
                   <DialogContent className="max-w-lg bg-white rounded-2xl">
                     <DialogHeader><DialogTitle>Corriger un mouvement comptable</DialogTitle><DialogDescription>Modifiez les informations ou ajoutez une note interne de suivi.</DialogDescription></DialogHeader>
                     <div className="space-y-4 py-4">
-                      <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={txForm.type} onValueChange={value => setTxForm({ ...txForm, type: value as typeof txForm.type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="entrée">Entrée</SelectItem><SelectItem value="sortie">Sortie</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Montant comptable (Ar)</Label><Input type="number" min="0" step="1" value={txForm.amount} onChange={e => setTxForm({ ...txForm, amount: e.target.value })} /></div></div>
+                      <div className="grid gap-4 md:grid-cols-3"><div className="space-y-2"><Label>Type</Label><Select value={txForm.type} onValueChange={value => setTxForm({ ...txForm, type: value as typeof txForm.type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="entrée">Entrée</SelectItem><SelectItem value="sortie">Sortie</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Devise</Label><Select value={txForm.currency} onValueChange={value => setTxForm({ ...txForm, currency: value as CurrencyCode, exchangeRate: value === "MGA" ? (txForm.exchangeRate === "1" ? String(DEFAULT_EUR_TO_MGA) : txForm.exchangeRate) : "1" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">MGA</SelectItem><SelectItem value="EUR">EUR</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Montant ({txForm.currency})</Label><Input type="number" min="0" step={txForm.currency === "MGA" ? "1" : "0.01"} value={txForm.amount} onChange={e => setTxForm({ ...txForm, amount: e.target.value })} /></div></div>
+                      {txForm.currency === "MGA" && <div className="space-y-2"><Label>Taux EUR/MGA</Label><Input type="number" min="1" step="1" value={txForm.exchangeRate} onChange={e => setTxForm({ ...txForm, exchangeRate: e.target.value })} /></div>}
                       <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Catégorie</Label><Input value={txForm.category} onChange={e => setTxForm({ ...txForm, category: e.target.value })} /></div><div className="space-y-2"><Label>Date</Label><Input type="date" value={txForm.date} onChange={e => setTxForm({ ...txForm, date: e.target.value })} /></div></div>
                       <div className="space-y-2"><Label>Description</Label><Textarea value={txForm.description} onChange={e => setTxForm({ ...txForm, description: e.target.value })} /></div>
                       <div className="space-y-2"><Label>Note interne</Label><Textarea value={txForm.internalNote} onChange={e => setTxForm({ ...txForm, internalNote: e.target.value })} placeholder="Correction, justification ou rappel interne…" /></div>
@@ -1264,7 +1306,7 @@ export default function Home() {
                       <TableHead>Description</TableHead>
                       <TableHead>Note interne</TableHead>
                       <TableHead>Mode</TableHead>
-                      <TableHead className="text-right">Montant</TableHead>
+                              <TableHead className="text-right">Montant / devise</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1282,7 +1324,7 @@ export default function Home() {
                         <TableCell className="max-w-[220px] text-xs text-slate-500">{tx.internalNote || "—"}</TableCell>
                         <TableCell>{tx.paymentMethod}</TableCell>
                         <TableCell className={`text-right font-bold ${tx.type === 'entrée' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {tx.type === 'entrée' ? '+' : '-'}{formatMGA(Number(tx.amount), currentEurToMgaRate)}
+                          {tx.type === 'entrée' ? '+' : '-'}{formatCurrency(Number(tx.amountInCurrency || tx.amount), tx.currency === "MGA" ? "MGA" : "EUR")}
                         </TableCell>
                         <TableCell className="text-right"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Corriger le mouvement" onClick={() => openTransactionEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button></TableCell>
                       </TableRow>
@@ -1590,6 +1632,24 @@ export default function Home() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+              <Dialog open={invoiceCashConversion !== null} onOpenChange={open => { if (!open) setInvoiceCashConversion(null); }}>
+                <DialogContent className="max-w-md bg-white rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Convertir la facture payée en entrée de caisse</DialogTitle>
+                    <DialogDescription>{invoiceCashConversion?.number} sera enregistré comme une recette comptable.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Montant de référence : <strong>{Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2"><Label>Devise de l’entrée</Label><Select value={invoiceCashCurrency} onValueChange={value => setInvoiceCashCurrency(value as CurrencyCode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MGA">Ariary (MGA)</SelectItem><SelectItem value="EUR">Euro (EUR)</SelectItem></SelectContent></Select></div>
+                      <div className="space-y-2"><Label>Mode de paiement</Label><Input value={invoiceCashPaymentMethod} onChange={event => setInvoiceCashPaymentMethod(event.target.value)} placeholder="Virement, espèces…" /></div>
+                    </div>
+                    {invoiceCashCurrency === "MGA" && <div className="space-y-2"><Label>Taux appliqué (1 EUR = MGA)</Label><Input type="number" min="1" step="1" value={invoiceCashRate} onChange={event => setInvoiceCashRate(event.target.value)} /><p className="text-xs text-slate-500">Le montant en Ariary sera calculé puis le montant EUR de référence sera conservé.</p></div>}
+                    <p className="text-sm text-slate-600">Montant à enregistrer : <strong>{invoiceCashCurrency === "MGA" ? `${convertEurToMga(Number(invoiceCashConversion?.totalAmount || 0), Number(invoiceCashRate) || DEFAULT_EUR_TO_MGA).toLocaleString("fr-FR")} Ar` : Number(invoiceCashConversion?.totalAmount || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></p>
+                  </div>
+                  <DialogFooter><Button onClick={() => { if (!invoiceCashConversion) return; if (invoiceCashCurrency === "MGA" && (!Number.isFinite(Number(invoiceCashRate)) || Number(invoiceCashRate) <= 0)) { toast.error("Indiquez un taux EUR/MGA positif."); return; } convertPaidInvoiceMutation.mutate({ invoiceId: invoiceCashConversion.id, currency: invoiceCashCurrency, exchangeRate: invoiceCashCurrency === "MGA" ? invoiceCashRate : "1", paymentMethod: invoiceCashPaymentMethod.trim() || "Virement" }); }} disabled={convertPaidInvoiceMutation.isPending} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl">{convertPaidInvoiceMutation.isPending ? "Conversion…" : "Ajouter à la caisse"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
 
             <Card className="border-slate-200 shadow-sm bg-white">
@@ -1610,7 +1670,7 @@ export default function Home() {
                         <TableCell className="font-semibold">{Number(inv.totalAmount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
                         <CommercialMGAColumnCell show={showMGAEquivalent} amount={Number(inv.totalAmount)} rate={Number(eurToMgaRate) || 0} />
                         <TableCell><Badge variant={inv.status === "brouillon" ? "secondary" : "outline"}>{inv.status}</Badge></TableCell>
-                        <TableCell className="text-right"><div className="flex justify-end gap-2">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "", termsAndConditions: inv.termsAndConditions || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}<Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("facture", { number: inv.invoiceNumber, clientId: inv.clientId, issueDate: inv.issueDate, dueDate: inv.dueDate, totalAmount: inv.totalAmount, itemsJson: inv.itemsJson, notes: inv.notes, termsAndConditions: inv.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button></div></TableCell>
+                        <TableCell className="text-right"><div className="flex flex-wrap justify-end gap-2">{inv.status === "brouillon" ? <Button size="sm" variant="outline" onClick={() => { setEditingInvoiceId(inv.id); setInvoiceForm({ invoiceNumber: inv.invoiceNumber, clientId: inv.clientId, quoteId: inv.quoteId || undefined, issueDate: String(inv.issueDate).slice(0, 10), dueDate: String(inv.dueDate).slice(0, 10), totalAmount: String(inv.totalAmount), itemsJson: inv.itemsJson, notes: inv.notes || "", termsAndConditions: inv.termsAndConditions || "" }); setIsInvoiceOpen(true); }}>Modifier</Button> : inv.status === "payée" ? <Button size="sm" variant="outline" onClick={() => { setInvoiceCashConversion({ id: inv.id, number: inv.invoiceNumber, totalAmount: String(inv.totalAmount) }); setInvoiceCashCurrency("MGA"); setInvoiceCashRate(String(DEFAULT_EUR_TO_MGA)); setInvoiceCashPaymentMethod("Virement"); }} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"><WalletCards className="mr-1 h-3.5 w-3.5" /> Vers caisse</Button> : <span className="text-xs text-slate-400">Verrouillée</span>}<Button size="sm" variant="outline" onClick={() => downloadCommercialDocument("facture", { number: inv.invoiceNumber, clientId: inv.clientId, issueDate: inv.issueDate, dueDate: inv.dueDate, totalAmount: inv.totalAmount, itemsJson: inv.itemsJson, notes: inv.notes, termsAndConditions: inv.termsAndConditions })}><Download className="mr-1 h-3.5 w-3.5" /> Télécharger</Button></div></TableCell>
                       </TableRow>
                     ))}
                     {(!invoicesQuery.data || invoicesQuery.data.length === 0) && <TableRow><TableCell colSpan={getCommercialTableColumnCount(showMGAEquivalent)} className="text-center py-6 text-slate-500">Aucune facture enregistrée.</TableCell></TableRow>}

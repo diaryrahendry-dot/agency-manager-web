@@ -11,6 +11,7 @@ import {
 } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { storagePut } from "./storage";
+import { DEFAULT_EUR_TO_MGA, convertEurToMga, normalizeCurrencyAmount } from "../shared/currency";
 
 function dateKey(value: string | Date | null | undefined) {
   if (!value) return "";
@@ -21,6 +22,7 @@ function amountOf(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
 }
+
 
 export const appRouter = router({
   system: systemRouter,
@@ -315,22 +317,25 @@ export const appRouter = router({
     }),
     createTransaction: protectedProcedure.input(z.object({
       type: z.enum(["entrée", "sortie"]),
-      category: z.string(),
-      amount: z.string(),
-      date: z.string(),
-      paymentMethod: z.string(),
-      reference: z.string().optional(),
-      description: z.string(),
+      category: z.string().trim().min(1),
+      amount: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le montant est invalide"),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      exchangeRate: z.string().trim().optional(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date est invalide"),
+      paymentMethod: z.string().trim().min(1),
+      reference: z.string().trim().optional(),
+      description: z.string().trim().min(1),
       attachedUrl: z.string().optional(),
       attachedKey: z.string().optional(),
       internalNote: z.string().trim().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const normalized = normalizeCurrencyAmount(input.amount, input.currency, input.exchangeRate);
       await database.insert(cashTransactions).values({
         type: input.type,
         category: input.category,
-        amount: input.amount,
+        ...normalized,
         date: input.date,
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
@@ -339,13 +344,15 @@ export const appRouter = router({
         attachedUrl: input.attachedUrl || null,
         attachedKey: input.attachedKey || null,
       } as any);
-      return { success: true };
+      return { success: true, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
     updateTransaction: protectedProcedure.input(z.object({
       id: z.number().int().positive(),
       type: z.enum(["entrée", "sortie"]),
       category: z.string().trim().min(1),
       amount: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le montant est invalide"),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      exchangeRate: z.string().trim().optional(),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date est invalide"),
       paymentMethod: z.string().trim().min(1),
       reference: z.string().trim().optional(),
@@ -356,20 +363,23 @@ export const appRouter = router({
       if (!database) throw new Error("Database unavailable");
       const existing = await database.select({ id: cashTransactions.id }).from(cashTransactions).where(eq(cashTransactions.id, input.id)).limit(1);
       if (existing.length === 0) throw new Error("Mouvement introuvable");
+      const normalized = normalizeCurrencyAmount(input.amount, input.currency, input.exchangeRate);
       await database.update(cashTransactions).set({
         type: input.type,
         category: input.category,
-        amount: input.amount,
+        ...normalized,
         date: input.date,
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
         description: input.description,
         internalNote: input.internalNote || null,
       } as any).where(eq(cashTransactions.id, input.id));
-      return { success: true };
+      return { success: true, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
     convertQuoteToTransaction: protectedProcedure.input(z.object({
       quoteId: z.number().int().positive(),
+      currency: z.enum(["EUR", "MGA"]).default("EUR"),
+      exchangeRate: z.string().trim().optional(),
       paymentMethod: z.string().trim().min(1).default("À encaisser"),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
@@ -382,17 +392,50 @@ export const appRouter = router({
       if (existingTransactions.some(transaction => transaction.reference === quote.quoteNumber)) {
         throw new Error("Ce devis possède déjà un mouvement comptable associé");
       }
+      const rate = input.exchangeRate ?? String(DEFAULT_EUR_TO_MGA);
+      const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(quote.totalAmount), Number(rate))) : String(quote.totalAmount);
+      const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
       await database.insert(cashTransactions).values({
         type: "entrée",
         category: "Vente / Devis",
-        amount: String(quote.totalAmount),
+        ...normalized,
         date: new Date().toISOString().slice(0, 10),
         paymentMethod: input.paymentMethod,
         reference: quote.quoteNumber,
         description: `Conversion du ${quote.quoteNumber} en entrée comptable`,
       } as any);
       await database.update(quotes).set({ status: "facturé" }).where(eq(quotes.id, input.quoteId));
-      return { success: true, quoteNumber: quote.quoteNumber };
+      return { success: true, quoteNumber: quote.quoteNumber, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
+    }),
+    convertPaidInvoiceToTransaction: protectedProcedure.input(z.object({
+      invoiceId: z.number().int().positive(),
+      currency: z.enum(["EUR", "MGA"]).default("MGA"),
+      exchangeRate: z.string().trim().optional(),
+      paymentMethod: z.string().trim().min(1).default("Virement"),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const invoiceRows = await database.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      const invoice = invoiceRows[0];
+      if (!invoice) throw new Error("Facture introuvable");
+      if (invoice.status !== "payée") throw new Error("Seules les factures au statut payée peuvent être converties en caisse");
+      const existingTransactions = await db.getCashTransactions();
+      if (existingTransactions.some(transaction => transaction.reference === invoice.invoiceNumber)) {
+        throw new Error("Cette facture possède déjà une entrée de caisse associée");
+      }
+      const rate = input.exchangeRate ?? String(DEFAULT_EUR_TO_MGA);
+      const amountInSelectedCurrency = input.currency === "MGA" ? String(convertEurToMga(Number(invoice.totalAmount), Number(rate))) : String(invoice.totalAmount);
+      const normalized = normalizeCurrencyAmount(amountInSelectedCurrency, input.currency, rate);
+      await database.insert(cashTransactions).values({
+        type: "entrée",
+        category: "Facture payée",
+        ...normalized,
+        date: new Date().toISOString().slice(0, 10),
+        paymentMethod: input.paymentMethod,
+        reference: invoice.invoiceNumber,
+        description: `Conversion de la facture payée ${invoice.invoiceNumber} en entrée de caisse`,
+      } as any);
+      return { success: true, invoiceNumber: invoice.invoiceNumber, currency: normalized.currency, amountInCurrency: normalized.amountInCurrency };
     }),
     summary: protectedProcedure.query(async () => {
       const txs = await db.getCashTransactions();

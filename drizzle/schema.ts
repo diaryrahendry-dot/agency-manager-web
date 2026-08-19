@@ -98,7 +98,10 @@ export const cashTransactions = mysqlTable("cash_transactions", {
   id: int("id").autoincrement().primaryKey(),
   type: mysqlEnum("type", ["entrée", "sortie"]).notNull(),
   category: varchar("category", { length: 100 }).notNull(), // ex: "Vente client", "Loyer", "Salaires", "Fournitures"
-  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), // Montant de référence en EUR pour les agrégations historiques
+  currency: mysqlEnum("currency", ["EUR", "MGA"]).default("EUR").notNull(),
+  amountInCurrency: decimal("amountInCurrency", { precision: 14, scale: 2 }).default("0.00").notNull(), // Montant effectivement saisi dans la devise choisie
+  exchangeRate: decimal("exchangeRate", { precision: 12, scale: 2 }).default("1.00").notNull(), // MGA par EUR, ou 1 pour EUR
   date: date("date").notNull(),
   paymentMethod: varchar("paymentMethod", { length: 50 }).default("Virement").notNull(),
   reference: varchar("reference", { length: 100 }),

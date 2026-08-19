@@ -83,7 +83,12 @@
 - [x] Concevoir un tableau récapitulatif rétractable sur la carte de l’agent pour ses données RH
 - [x] Valider avec TypeScript, Vitest et un nouveau checkpoint
 
-- [ ] Adapter l’affichage de la comptabilité et de la RH (salaires, avances) en Ariary (MGA) avec taux de conversion ou format direct Ariary
-- [ ] Mettre à jour les formulaires de saisie et les récapitulatifs pour utiliser l’Ariary en compta et RH
-- [ ] Valider avec les tests unitaires Vitest et TypeScript
-- [ ] Créer le checkpoint final de la mise à jour MGA
+- [x] Adapter l’affichage de la comptabilité et de la RH (salaires, avances) en Ariary (MGA) avec taux de conversion ou format direct Ariary
+- [x] Mettre à jour les formulaires de saisie et les récapitulatifs pour utiliser l’Ariary en compta et RH
+- [x] Valider avec les tests unitaires Vitest et TypeScript
+- [x] Créer le checkpoint final de la mise à jour MGA
+
+- [ ] Ajouter la sélection de la devise (EUR ou MGA) pour chaque mouvement comptable dans la base et l’interface
+- [ ] Permettre de convertir une facture payée en entrée de caisse (comptabilité) avec montant convertible en Ariary ou Euro selon le choix
+- [ ] Mettre à jour les exports Excel/CSV et les tests unitaires Vitest
+- [ ] Valider avec TypeScript, Vitest et un checkpoint final
