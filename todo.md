@@ -71,7 +71,7 @@
 - [x] Mettre en place l’export Excel complet de sauvegarde de l’agence (XLSX / CSV)
 - [x] Concevoir le reporting mensuel intelligent pour chaque section (RH, Compta, CRM, Facturation)
 - [x] Valider l’ensemble avec TypeScript, les tests unitaires et un checkpoint final
-- [ ] Implémenter explicitement la modification et la suppression des pointages et congés existants avec interface, procédures tRPC et tests
-- [ ] Créer un export de sauvegarde global XLSX/CSV couvrant RH, comptabilité, CRM, clients, devis/factures et documents référencés
-- [ ] Tester le backup global et les actions CRUD pointages/congés
-- [ ] Créer un nouveau checkpoint après ces corrections et ne clôturer la validation finale qu’après confirmation
+- [x] Implémenter explicitement la modification et la suppression des pointages et congés existants avec interface, procédures tRPC et tests
+- [x] Créer un export de sauvegarde global XLSX/CSV couvrant RH, comptabilité, CRM, clients, devis/factures et documents référencés
+- [x] Tester le backup global et les actions CRUD pointages/congés
+- [x] Créer un nouveau checkpoint après ces corrections et ne clôturer la validation finale qu’après confirmation
