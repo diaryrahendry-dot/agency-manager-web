@@ -73,6 +73,47 @@ export const appRouter = router({
         throw new Error("Impossible d’enregistrer cet employé. Vérifiez les informations saisies et réessayez.");
       }
     }),
+    updateAgent: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      name: z.string().trim().min(1, "Le nom est obligatoire"),
+      email: z.string().trim().email("L’email professionnel est invalide"),
+      phone: z.string().trim().optional(),
+      position: z.string().trim().min(1, "Le poste est obligatoire"),
+      department: z.string().trim().min(1, "Le département est obligatoire"),
+      hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date d’embauche est invalide"),
+      salary: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le salaire doit être un montant positif"),
+      contractType: z.string().trim().min(1, "Le type de contrat est obligatoire"),
+      address: z.string().trim().optional(),
+      emergencyContact: z.string().trim().optional(),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Agent introuvable");
+      await database.update(agents).set({
+        name: input.name,
+        email: input.email,
+        phone: input.phone || null,
+        position: input.position,
+        department: input.department,
+        hireDate: input.hireDate,
+        salary: input.salary,
+        contractType: input.contractType,
+        address: input.address || null,
+        emergencyContact: input.emergencyContact || null,
+        notes: input.notes || null,
+      } as any).where(eq(agents.id, input.id));
+      return { success: true };
+    }),
+    deleteAgent: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: agents.id }).from(agents).where(eq(agents.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Agent introuvable");
+      await database.delete(agents).where(eq(agents.id, input.id));
+      return { success: true };
+    }),
 
     listTimeEntries: protectedProcedure.input(z.object({ agentId: z.number().optional() }).optional()).query(async ({ input }) => {
       return await db.getTimeEntries(input?.agentId);
@@ -95,6 +136,28 @@ export const appRouter = router({
         status: input.status,
         notes: input.notes || null,
       } as any);
+      return { success: true };
+    }),
+    updateTimeEntry: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date du pointage est invalide"),
+      hoursWorked: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24, "Les heures doivent être comprises entre 0 et 24"),
+      status: z.enum(["présent", "absent", "retard", "congé"]),
+      notes: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).where(eq(timeEntries.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Pointage introuvable");
+      await database.update(timeEntries).set({ date: input.date, hoursWorked: input.hoursWorked, status: input.status, notes: input.notes || null } as any).where(eq(timeEntries.id, input.id));
+      return { success: true };
+    }),
+    deleteTimeEntry: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: timeEntries.id }).from(timeEntries).where(eq(timeEntries.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Pointage introuvable");
+      await database.delete(timeEntries).where(eq(timeEntries.id, input.id));
       return { success: true };
     }),
 
@@ -128,6 +191,29 @@ export const appRouter = router({
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
       await database.update(leaves).set({ status: input.status }).where(eq(leaves.id, input.id));
+      return { success: true };
+    }),
+    updateLeave: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      leaveType: z.string().trim().min(1),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date de début est invalide"),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date de fin est invalide"),
+      daysCount: z.number().int().positive(),
+      reason: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: leaves.id }).from(leaves).where(eq(leaves.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Demande de congé introuvable");
+      await database.update(leaves).set({ leaveType: input.leaveType, startDate: input.startDate, endDate: input.endDate, daysCount: input.daysCount, reason: input.reason || null } as any).where(eq(leaves.id, input.id));
+      return { success: true };
+    }),
+    deleteLeave: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: leaves.id }).from(leaves).where(eq(leaves.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Demande de congé introuvable");
+      await database.delete(leaves).where(eq(leaves.id, input.id));
       return { success: true };
     }),
 
@@ -237,6 +323,7 @@ export const appRouter = router({
       description: z.string(),
       attachedUrl: z.string().optional(),
       attachedKey: z.string().optional(),
+      internalNote: z.string().trim().optional(),
     })).mutation(async ({ input }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
@@ -248,9 +335,37 @@ export const appRouter = router({
         paymentMethod: input.paymentMethod,
         reference: input.reference || null,
         description: input.description,
+        internalNote: input.internalNote || null,
         attachedUrl: input.attachedUrl || null,
         attachedKey: input.attachedKey || null,
       } as any);
+      return { success: true };
+    }),
+    updateTransaction: protectedProcedure.input(z.object({
+      id: z.number().int().positive(),
+      type: z.enum(["entrée", "sortie"]),
+      category: z.string().trim().min(1),
+      amount: z.string().trim().refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "Le montant est invalide"),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La date est invalide"),
+      paymentMethod: z.string().trim().min(1),
+      reference: z.string().trim().optional(),
+      description: z.string().trim().min(1),
+      internalNote: z.string().trim().optional(),
+    })).mutation(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const existing = await database.select({ id: cashTransactions.id }).from(cashTransactions).where(eq(cashTransactions.id, input.id)).limit(1);
+      if (existing.length === 0) throw new Error("Mouvement introuvable");
+      await database.update(cashTransactions).set({
+        type: input.type,
+        category: input.category,
+        amount: input.amount,
+        date: input.date,
+        paymentMethod: input.paymentMethod,
+        reference: input.reference || null,
+        description: input.description,
+        internalNote: input.internalNote || null,
+      } as any).where(eq(cashTransactions.id, input.id));
       return { success: true };
     }),
     convertQuoteToTransaction: protectedProcedure.input(z.object({
@@ -380,6 +495,55 @@ export const appRouter = router({
         };
       })();
       return { ...report, generatedAt: new Date().toISOString() };
+    }),
+    monthlyReport: protectedProcedure.input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/, "Le mois doit être au format AAAA-MM").optional() }).optional()).query(async ({ input }) => {
+      const now = new Date();
+      const monthKey = input?.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const [agentsData, timeEntriesData, leavesData, advancesData, contractsData, ticketsData, transactionsData, leadsData, clientsData, interactionsData, documentsData, quotesData, invoicesData] = await Promise.all([
+        db.getAgents(), db.getTimeEntries(), db.getLeaves(), db.getSalaryAdvances(), db.getContracts(), db.getTickets(),
+        db.getCashTransactions(), db.getLeads(), db.getClients(), db.getClientInteractions(), db.getDocuments(), db.getQuotes(), db.getInvoices(),
+      ]);
+      const inMonth = (value: string | Date | null | undefined) => dateKey(value).startsWith(monthKey);
+      const monthTransactions = transactionsData.filter(item => inMonth(item.date));
+      const monthLeads = leadsData.filter(item => inMonth(item.createdAt));
+      const monthClients = clientsData.filter(item => inMonth(item.createdAt));
+      const monthInteractions = interactionsData.filter(item => inMonth(item.date));
+      const monthDocuments = documentsData.filter(item => inMonth(item.createdAt));
+      const monthQuotes = quotesData.filter(item => inMonth(item.issueDate));
+      const monthInvoices = invoicesData.filter(item => inMonth(item.issueDate));
+      const monthAgents = agentsData.filter(item => inMonth(item.createdAt));
+      const monthTimeEntries = timeEntriesData.filter(item => inMonth(item.date));
+      const monthLeaves = leavesData.filter(item => inMonth(item.startDate));
+      const monthAdvances = advancesData.filter(item => inMonth(item.requestedDate));
+      const monthContracts = contractsData.filter(item => inMonth(item.startDate));
+      const monthTickets = ticketsData.filter(item => inMonth(item.createdAt));
+      const collected = monthTransactions.filter(item => item.type === "entrée").reduce((sum, item) => sum + amountOf(item.amount), 0);
+      const expenses = monthTransactions.filter(item => item.type === "sortie").reduce((sum, item) => sum + amountOf(item.amount), 0);
+      const invoiced = monthInvoices.filter(item => item.status !== "annulée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0);
+      const paid = monthInvoices.filter(item => item.status === "payée").reduce((sum, item) => sum + amountOf(item.totalAmount), 0);
+      const pipeline = monthLeads.filter(item => !["gagne", "perdu"].includes(item.status)).reduce((sum, item) => sum + amountOf(item.expectedAmount), 0);
+      const openTickets = ticketsData.filter(item => ["ouvert", "en_cours"].includes(item.status)).length;
+      const pendingAdvances = advancesData.filter(item => item.status === "demandé").length;
+      const overdueInvoices = invoicesData.filter(item => item.status === "en_retard").length;
+      const insights = [
+        collected > expenses ? "La trésorerie du mois est positive." : "Les dépenses dépassent les encaissements du mois : vérifiez les sorties importantes.",
+        pipeline > 0 ? `${monthLeads.length} lead(s) alimentent encore le pipeline pour ${pipeline.toLocaleString("fr-FR")} € potentiels.` : "Aucun montant actif n’est actuellement détecté dans le pipeline.",
+        overdueInvoices > 0 ? `${overdueInvoices} facture(s) en retard nécessitent une relance.` : "Aucune facture en retard détectée.",
+        pendingAdvances > 0 ? `${pendingAdvances} demande(s) d’avance sur salaire sont à traiter.` : "Aucune avance sur salaire en attente.",
+      ];
+      return {
+        month: monthKey,
+        monthLabel: new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)) - 1, 1)),
+        generatedAt: new Date().toISOString(),
+        sections: {
+          rh: { newAgents: monthAgents.length, timeEntries: monthTimeEntries.length, leaveRequests: monthLeaves.length, advances: monthAdvances.length, contracts: monthContracts.length, openTickets },
+          accounting: { transactions: monthTransactions.length, collected, expenses, balance: collected - expenses, invoiced, paid },
+          crm: { newLeads: monthLeads.length, pipeline, won: monthLeads.filter(item => item.status === "gagne").length, followUps: monthLeads.filter(item => item.nextContactDate && dateKey(item.nextContactDate) <= `${monthKey}-31` && !["gagne", "perdu"].includes(item.status)).length },
+          clients: { newClients: monthClients.length, interactions: monthInteractions.length, documents: monthDocuments.length },
+          billing: { quotes: monthQuotes.length, invoices: monthInvoices.length, paid, invoiced, overdue: overdueInvoices },
+        },
+        insights,
+      };
     }),
   }),
 

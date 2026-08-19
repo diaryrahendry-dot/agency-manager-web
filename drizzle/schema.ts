@@ -103,6 +103,7 @@ export const cashTransactions = mysqlTable("cash_transactions", {
   paymentMethod: varchar("paymentMethod", { length: 50 }).default("Virement").notNull(),
   reference: varchar("reference", { length: 100 }),
   description: text("description").notNull(),
+  internalNote: text("internalNote"),
   attachedUrl: text("attachedUrl"),
   attachedKey: text("attachedKey"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

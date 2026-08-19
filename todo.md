@@ -64,5 +64,14 @@
 - [x] Valider l’interactivité avec TypeScript, les tests unitaires et un checkpoint final
 - [x] Corriger l’affichage mobile de la navigation horizontale pour conserver des onglets accessibles et lisibles
 - [x] Ajouter un test de contrat garantissant les destinations des cartes KPI et graphiques du dashboard
-- [ ] Créer un nouveau checkpoint après les corrections finales du pointage RH, du Kanban CRM et du dashboard interactif
-- [ ] Mettre à jour les lignes de checkpoint dans todo.md après confirmation de la sauvegarde réussie
+- [x] Créer un nouveau checkpoint après les corrections finales du pointage RH, du Kanban CRM et du dashboard interactif
+- [x] Mettre à jour les lignes de checkpoint dans todo.md après confirmation de la sauvegarde réussie
+- [x] Ajouter l’option de suppression et de modification des agents et de leurs pointages/congés
+- [x] Ajouter la correction et l’ajout de notes internes sur les mouvements de caisse comptables
+- [x] Mettre en place l’export Excel complet de sauvegarde de l’agence (XLSX / CSV)
+- [x] Concevoir le reporting mensuel intelligent pour chaque section (RH, Compta, CRM, Facturation)
+- [x] Valider l’ensemble avec TypeScript, les tests unitaires et un checkpoint final
+- [ ] Implémenter explicitement la modification et la suppression des pointages et congés existants avec interface, procédures tRPC et tests
+- [ ] Créer un export de sauvegarde global XLSX/CSV couvrant RH, comptabilité, CRM, clients, devis/factures et documents référencés
+- [ ] Tester le backup global et les actions CRUD pointages/congés
+- [ ] Créer un nouveau checkpoint après ces corrections et ne clôturer la validation finale qu’après confirmation

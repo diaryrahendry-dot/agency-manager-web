@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
+import * as XLSX from "xlsx";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { 
   Users, DollarSign, Kanban, Building2, FileText, Ticket, 
   Plus, Search, Download, CheckCircle, Clock, AlertCircle, 
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, FileSpreadsheet, 
-  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw, Pencil, ArrowRight, ClipboardCheck
+  UserPlus, Briefcase, Calendar, ShieldCheck, ExternalLink, RefreshCw, Pencil, ArrowRight, ClipboardCheck, Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -47,6 +48,8 @@ export default function Home() {
   const accountingSummary = trpc.accounting.summary.useQuery(undefined, { enabled: isAuthenticated });
   const revenueReportQuery = trpc.accounting.revenueReport.useQuery(undefined, { enabled: isAuthenticated });
   const automaticReportQuery = trpc.accounting.automaticReport.useQuery(undefined, { enabled: isAuthenticated });
+  const [reportMonth, setReportMonth] = useState("2026-08");
+  const monthlyReportQuery = trpc.accounting.monthlyReport.useQuery({ month: reportMonth }, { enabled: isAuthenticated });
   
   const leadsQuery = trpc.crm.listLeads.useQuery(undefined, { enabled: isAuthenticated });
   
@@ -61,13 +64,22 @@ export default function Home() {
 
   // États pour les modals de création
   const [isAgentOpen, setIsAgentOpen] = useState(false);
+  const [isAgentEditOpen, setIsAgentEditOpen] = useState(false);
+  const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
   const [agentFormError, setAgentFormError] = useState("");
   const [agentForm, setAgentForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "3000.00", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
+  const [agentEditForm, setAgentEditForm] = useState({ name: "", email: "", phone: "", position: "", department: "", hireDate: "2026-01-01", salary: "3000.00", contractType: "CDI", address: "", emergencyContact: "", notes: "" });
 
   const [isTxOpen, setIsTxOpen] = useState(false);
+  const [isTxEditOpen, setIsTxEditOpen] = useState(false);
+  const [editingTxId, setEditingTxId] = useState<number | null>(null);
   const [isTimeEntryOpen, setIsTimeEntryOpen] = useState(false);
+  const [editingTimeEntryId, setEditingTimeEntryId] = useState<number | null>(null);
   const [timeEntryForm, setTimeEntryForm] = useState({ agentId: 0, date: "2026-08-19", hoursWorked: "8", status: "présent" as "présent" | "absent" | "retard" | "congé", notes: "" });
-  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "1500.00", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web" });
+  const [isLeaveEditOpen, setIsLeaveEditOpen] = useState(false);
+  const [editingLeaveId, setEditingLeaveId] = useState<number | null>(null);
+  const [leaveEditForm, setLeaveEditForm] = useState({ leaveType: "Annuel", startDate: "2026-08-19", endDate: "2026-08-19", daysCount: 1, reason: "" });
+  const [txForm, setTxForm] = useState({ type: "entrée" as "entrée" | "sortie", category: "Vente client", amount: "1500.00", date: "2026-08-19", paymentMethod: "Virement", reference: "REF-001", description: "Paiement prestation web", internalNote: "" });
 
   const [isLeadOpen, setIsLeadOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({ companyName: "", contactName: "", email: "", phone: "", expectedAmount: "5000.00", priority: "moyenne" as const, status: "nouveau" as const, nextContactDate: "2026-08-25", notes: "" });
@@ -86,7 +98,54 @@ export default function Home() {
   const [invoiceForm, setInvoiceForm] = useState({ invoiceNumber: "FAC-2026-001", clientId: 1, quoteId: undefined as number | undefined, issueDate: "2026-08-19", dueDate: "2026-09-19", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre confiance", termsAndConditions: "Paiement à 30 jours. Toute prestation commencée est due. Les frais et taxes applicables restent à la charge du client." });
   const [quoteForm, setQuoteForm] = useState({ quoteNumber: "DEV-2026-001", clientId: 1, issueDate: "2026-08-19", validUntil: "2026-09-18", totalAmount: "2400.00", itemsJson: "Prestation conseil - 10h", notes: "Merci pour votre demande.", termsAndConditions: "Validité de l’offre : 30 jours. Paiement selon les conditions convenues au devis." });
 
+  const openAgentEdit = (agent: NonNullable<typeof agentsQuery.data>[number]) => {
+    setEditingAgentId(agent.id);
+    setAgentEditForm({ name: agent.name, email: agent.email, phone: agent.phone || "", position: agent.position, department: agent.department, hireDate: String(agent.hireDate).slice(0, 10), salary: String(agent.salary), contractType: agent.contractType, address: agent.address || "", emergencyContact: agent.emergencyContact || "", notes: agent.notes || "" });
+    setAgentFormError("");
+    setIsAgentEditOpen(true);
+  };
+
+  const openTransactionEdit = (transaction: NonNullable<typeof transactionsQuery.data>[number]) => {
+    setEditingTxId(transaction.id);
+    setTxForm({ type: transaction.type, category: transaction.category, amount: String(transaction.amount), date: String(transaction.date).slice(0, 10), paymentMethod: transaction.paymentMethod, reference: transaction.reference || "", description: transaction.description, internalNote: transaction.internalNote || "" });
+    setIsTxEditOpen(true);
+  };
+
+  const openTimeEntryEdit = (entry: NonNullable<typeof timeEntriesQuery.data>[number]) => {
+    setEditingTimeEntryId(entry.id);
+    setSelectedTimeEntryAgentId(entry.agentId);
+    setTimeEntryForm({ agentId: entry.agentId, date: String(entry.date).slice(0, 10), hoursWorked: String(entry.hoursWorked), status: entry.status, notes: entry.notes || "" });
+    setIsTimeEntryOpen(true);
+  };
+
+  const openLeaveEdit = (leave: NonNullable<typeof leavesQuery.data>[number]) => {
+    setEditingLeaveId(leave.id);
+    setLeaveEditForm({ leaveType: leave.leaveType, startDate: String(leave.startDate).slice(0, 10), endDate: String(leave.endDate).slice(0, 10), daysCount: leave.daysCount, reason: leave.reason || "" });
+    setIsLeaveEditOpen(true);
+  };
+
   const utils = trpc.useUtils();
+
+  const updateAgentMutation = trpc.hr.updateAgent.useMutation({
+    onSuccess: () => {
+      toast.success("Fiche employé mise à jour.");
+      setIsAgentEditOpen(false);
+      setEditingAgentId(null);
+      utils.hr.listAgents.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de modifier l’employé : " + err.message),
+  });
+
+  const deleteAgentMutation = trpc.hr.deleteAgent.useMutation({
+    onSuccess: () => {
+      toast.success("Employé supprimé.");
+      utils.hr.listAgents.invalidate();
+      utils.hr.listTimeEntries.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de supprimer l’employé : " + err.message),
+  });
 
   const createAgentMutation = trpc.hr.createAgent.useMutation({
     onSuccess: () => {
@@ -138,12 +197,68 @@ export default function Home() {
     onSuccess: () => {
       toast.success("Pointage enregistré dans la feuille de l’agent.");
       setIsTimeEntryOpen(false);
+      setEditingTimeEntryId(null);
       utils.hr.listTimeEntries.invalidate();
       if (selectedTimeEntryAgentId) {
         utils.hr.listTimeEntries.invalidate({ agentId: selectedTimeEntryAgentId });
       }
     },
     onError: (err) => toast.error("Erreur de pointage : " + err.message),
+  });
+
+  const updateTimeEntryMutation = trpc.hr.updateTimeEntry.useMutation({
+    onSuccess: () => {
+      toast.success("Pointage corrigé.");
+      setIsTimeEntryOpen(false);
+      setEditingTimeEntryId(null);
+      utils.hr.listTimeEntries.invalidate();
+      if (selectedTimeEntryAgentId) utils.hr.listTimeEntries.invalidate({ agentId: selectedTimeEntryAgentId });
+    },
+    onError: (err) => toast.error("Impossible de corriger le pointage : " + err.message),
+  });
+
+  const deleteTimeEntryMutation = trpc.hr.deleteTimeEntry.useMutation({
+    onSuccess: () => {
+      toast.success("Pointage supprimé.");
+      utils.hr.listTimeEntries.invalidate();
+      if (selectedTimeEntryAgentId) utils.hr.listTimeEntries.invalidate({ agentId: selectedTimeEntryAgentId });
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de supprimer le pointage : " + err.message),
+  });
+
+  const updateLeaveMutation = trpc.hr.updateLeave.useMutation({
+    onSuccess: () => {
+      toast.success("Demande de congé corrigée.");
+      setIsLeaveEditOpen(false);
+      setEditingLeaveId(null);
+      utils.hr.listLeaves.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de corriger le congé : " + err.message),
+  });
+
+  const deleteLeaveMutation = trpc.hr.deleteLeave.useMutation({
+    onSuccess: () => {
+      toast.success("Demande de congé supprimée.");
+      utils.hr.listLeaves.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de supprimer le congé : " + err.message),
+  });
+
+  const updateTxMutation = trpc.accounting.updateTransaction.useMutation({
+    onSuccess: () => {
+      toast.success("Mouvement comptable corrigé.");
+      setIsTxEditOpen(false);
+      setEditingTxId(null);
+      utils.accounting.listTransactions.invalidate();
+      utils.accounting.summary.invalidate();
+      utils.accounting.revenueReport.invalidate();
+      utils.accounting.automaticReport.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de corriger le mouvement : " + err.message),
   });
 
   const createTxMutation = trpc.accounting.createTransaction.useMutation({
@@ -241,6 +356,52 @@ export default function Home() {
     onError: (err) => toast.error("Erreur : " + err.message)
   });
 
+  const handleUpdateAgent = () => {
+    if (!editingAgentId) return;
+    updateAgentMutation.mutate({ id: editingAgentId, ...agentEditForm, name: agentEditForm.name.trim(), email: agentEditForm.email.trim(), phone: agentEditForm.phone.trim(), position: agentEditForm.position.trim(), department: agentEditForm.department.trim(), salary: agentEditForm.salary.trim(), address: agentEditForm.address.trim(), emergencyContact: agentEditForm.emergencyContact.trim(), notes: agentEditForm.notes.trim() });
+  };
+
+  const handleDeleteAgent = (agent: { id: number; name: string }) => {
+    if (window.confirm(`Supprimer définitivement la fiche de ${agent.name} ? Les pointages et éléments liés restent conservés séparément.`)) {
+      deleteAgentMutation.mutate({ id: agent.id });
+    }
+  };
+
+  const handleUpdateTransaction = () => {
+    if (!editingTxId) return;
+    updateTxMutation.mutate({ id: editingTxId, ...txForm, reference: txForm.reference.trim(), internalNote: txForm.internalNote.trim() });
+  };
+
+  const handleSaveTimeEntry = () => {
+    if (!timeEntryForm.agentId) {
+      toast.error("Sélectionnez un agent pour ce pointage.");
+      return;
+    }
+    const payload = { date: timeEntryForm.date, hoursWorked: timeEntryForm.hoursWorked.trim(), status: timeEntryForm.status, notes: timeEntryForm.notes.trim() };
+    if (editingTimeEntryId) {
+      updateTimeEntryMutation.mutate({ id: editingTimeEntryId, ...payload });
+    } else {
+      createTimeEntryMutation.mutate({ agentId: timeEntryForm.agentId, ...payload });
+    }
+  };
+
+  const handleDeleteTimeEntry = (entry: { id: number; date: unknown }) => {
+    if (window.confirm(`Supprimer le pointage du ${String(entry.date).slice(0, 10)} ?`)) {
+      deleteTimeEntryMutation.mutate({ id: entry.id });
+    }
+  };
+
+  const handleUpdateLeave = () => {
+    if (!editingLeaveId) return;
+    updateLeaveMutation.mutate({ id: editingLeaveId, ...leaveEditForm, reason: leaveEditForm.reason.trim() });
+  };
+
+  const handleDeleteLeave = (leave: { id: number; leaveType: string }) => {
+    if (window.confirm(`Supprimer cette demande de congé (${leave.leaveType}) ?`)) {
+      deleteLeaveMutation.mutate({ id: leave.id });
+    }
+  };
+
   // Export CSV Comptabilité
   const exportAccountingCSV = () => {
     const txs = transactionsQuery.data || [];
@@ -257,6 +418,39 @@ export default function Home() {
     link.click();
     document.body.removeChild(link);
     toast.success("Export CSV comptable téléchargé !");
+  };
+
+  const exportAccountingExcel = () => {
+    const workbook = XLSX.utils.book_new();
+    const appendSheet = (name: string, rows: Array<Record<string, unknown>>) => {
+      const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Information: "Aucune donnée" }]);
+      XLSX.utils.book_append_sheet(workbook, worksheet, name.slice(0, 31));
+    };
+    appendSheet("Mouvements", (transactionsQuery.data || []).map(tx => ({ ID: tx.id, Type: tx.type, Catégorie: tx.category, MontantEUR: Number(tx.amount), Date: String(tx.date), Mode: tx.paymentMethod, Référence: tx.reference || "", Description: tx.description, NoteInterne: tx.internalNote || "" })));
+    appendSheet("Agents RH", (agentsQuery.data || []).map(agent => ({ ID: agent.id, Nom: agent.name, Email: agent.email, Téléphone: agent.phone || "", Poste: agent.position, Département: agent.department, Embauche: String(agent.hireDate), SalaireEUR: Number(agent.salary), Contrat: agent.contractType, Statut: agent.status, Adresse: agent.address || "", ContactUrgence: agent.emergencyContact || "", Notes: agent.notes || "" })));
+    appendSheet("Pointages", (timeEntriesQuery.data || []).map(entry => ({ ID: entry.id, AgentID: entry.agentId, Date: String(entry.date), Heures: Number(entry.hoursWorked), Statut: entry.status, Notes: entry.notes || "" })));
+    appendSheet("Congés", (leavesQuery.data || []).map(leave => ({ ID: leave.id, AgentID: leave.agentId, Type: leave.leaveType, Début: String(leave.startDate), Fin: String(leave.endDate), Jours: leave.daysCount, Statut: leave.status, Motif: leave.reason || "" })));
+    appendSheet("Avances salaire", (advancesQuery.data || []).map(advance => ({ ID: advance.id, AgentID: advance.agentId, MontantEUR: Number(advance.amount), DateDemande: String(advance.requestedDate), Statut: advance.status, MoisDéduction: advance.deductionMonth, Notes: advance.notes || "" })));
+    appendSheet("Contrats", (contractsQuery.data || []).map(contract => ({ ID: contract.id, AgentID: contract.agentId, Titre: contract.title, Type: contract.contractType, Début: String(contract.startDate), Fin: contract.endDate ? String(contract.endDate) : "", Statut: contract.status, URLDocument: contract.documentUrl || "", CléDocument: contract.documentKey || "" })));
+    appendSheet("Tickets", (ticketsQuery.data || []).map(ticket => ({ ID: ticket.id, Titre: ticket.title, AgentID: ticket.agentId || "", ClientID: ticket.clientId || "", Priorité: ticket.priority, Statut: ticket.status, Catégorie: ticket.category, Description: ticket.description })));
+    appendSheet("Leads CRM", (leadsQuery.data || []).map(lead => ({ ID: lead.id, Entreprise: lead.companyName, Contact: lead.contactName, Email: lead.email, Téléphone: lead.phone || "", MontantAttenduEUR: Number(lead.expectedAmount), Priorité: lead.priority, Statut: lead.status, ProchainContact: lead.nextContactDate ? String(lead.nextContactDate) : "", Notes: lead.notes || "" })));
+    appendSheet("Clients", (clientsQuery.data || []).map(client => ({ ID: client.id, Entreprise: client.companyName, Contact: client.contactName, Email: client.email, Téléphone: client.phone || "", Adresse: client.address || "", Catégorie: client.category, Secteur: client.industry || "", Statut: client.status, Notes: client.notes || "" })));
+    appendSheet("Interactions clients", (interactionsQuery.data || []).map(interaction => ({ ID: interaction.id, ClientID: interaction.clientId, Type: interaction.type, Résumé: interaction.summary, Date: String(interaction.date), Agent: interaction.agentName || "" })));
+    appendSheet("Documents", (documentsQuery.data || []).map(document => ({ ID: document.id, Titre: document.title, Catégorie: document.category, EntitéID: document.entityId || "", URL: document.fileUrl, CléS3: document.fileKey, Taille: document.fileSize || "", CrééLe: String(document.createdAt) })));
+    appendSheet("Devis", (quotesQuery.data || []).map(quote => ({ Numéro: quote.quoteNumber, ClientID: quote.clientId, Date: String(quote.issueDate), ValideJusquAu: String(quote.validUntil), MontantEUR: Number(quote.totalAmount), Statut: quote.status, Notes: quote.notes || "", CGV: quote.termsAndConditions || "" })));
+    appendSheet("Factures", (invoicesQuery.data || []).map(invoice => ({ Numéro: invoice.invoiceNumber, ClientID: invoice.clientId, DevisID: invoice.quoteId || "", Date: String(invoice.issueDate), Échéance: String(invoice.dueDate), MontantEUR: Number(invoice.totalAmount), Statut: invoice.status, Notes: invoice.notes || "", CGV: invoice.termsAndConditions || "" })));
+    const report = monthlyReportQuery.data;
+    if (report) {
+      appendSheet("Reporting mensuel", [
+        { Section: "RH", Période: report.monthLabel, NouveauxAgents: report.sections.rh.newAgents, Pointages: report.sections.rh.timeEntries, Congés: report.sections.rh.leaveRequests, Avances: report.sections.rh.advances, Contrats: report.sections.rh.contracts, TicketsOuverts: report.sections.rh.openTickets },
+        { Section: "Comptabilité", Période: report.monthLabel, Mouvements: report.sections.accounting.transactions, EncaisséEUR: report.sections.accounting.collected, DépensesEUR: report.sections.accounting.expenses, SoldeEUR: report.sections.accounting.balance, FacturéEUR: report.sections.accounting.invoiced, PayéEUR: report.sections.accounting.paid },
+        { Section: "CRM", Période: report.monthLabel, NouveauxLeads: report.sections.crm.newLeads, PipelineEUR: report.sections.crm.pipeline, Gagnés: report.sections.crm.won, Relances: report.sections.crm.followUps },
+        { Section: "Clients", Période: report.monthLabel, NouveauxClients: report.sections.clients.newClients, Interactions: report.sections.clients.interactions, Documents: report.sections.clients.documents },
+        { Section: "Facturation", Période: report.monthLabel, Devis: report.sections.billing.quotes, Factures: report.sections.billing.invoices, FacturéEUR: report.sections.billing.invoiced, PayéEUR: report.sections.billing.paid, EnRetard: report.sections.billing.overdue },
+      ]);
+    }
+    XLSX.writeFile(workbook, `backup_agency_manager_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success("Backup Excel complet téléchargé.");
   };
 
   const downloadCommercialDocument = (kind: "facture" | "devis", documentData: CommercialDocumentData) => {
@@ -462,6 +656,16 @@ export default function Home() {
                   <div className="rounded-xl bg-white/80 border border-indigo-100 p-4"><p className="text-xs text-slate-500">À relancer</p><p className="text-xl font-bold text-amber-600">{automaticReportQuery.data?.unpaidCount || 0}</p></div>
                 </CardContent>
               </Card>
+              <Card className="border-slate-200 shadow-sm bg-white lg:col-span-2">
+                <CardHeader className="pb-3"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Reporting intelligent par section</CardTitle><CardDescription>Analyse mensuelle de chaque pôle de l’agence à partir des données enregistrées.</CardDescription></div><div className="flex items-center gap-2"><Label htmlFor="report-month" className="text-xs text-slate-500">Période</Label><Input id="report-month" type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} className="w-40 bg-white" /></div></div></CardHeader>
+                <CardContent>{monthlyReportQuery.isLoading ? <div className="flex items-center justify-center py-8 text-sm text-slate-500"><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Calcul du reporting mensuel…</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">{[
+                  { key: "rh", title: "RH", accent: "text-indigo-700", values: [`${monthlyReportQuery.data?.sections.rh.newAgents || 0} nouveaux agents`, `${monthlyReportQuery.data?.sections.rh.timeEntries || 0} pointages`, `${monthlyReportQuery.data?.sections.rh.openTickets || 0} tickets ouverts`] },
+                  { key: "accounting", title: "Comptabilité", accent: "text-emerald-700", values: [`${(monthlyReportQuery.data?.sections.accounting.collected || 0).toLocaleString("fr-FR")} € encaissés`, `${(monthlyReportQuery.data?.sections.accounting.expenses || 0).toLocaleString("fr-FR")} € dépenses`, `${monthlyReportQuery.data?.sections.accounting.transactions || 0} mouvements`] },
+                  { key: "crm", title: "CRM", accent: "text-amber-700", values: [`${monthlyReportQuery.data?.sections.crm.newLeads || 0} nouveaux leads`, `${(monthlyReportQuery.data?.sections.crm.pipeline || 0).toLocaleString("fr-FR")} € pipeline`, `${monthlyReportQuery.data?.sections.crm.followUps || 0} relances`] },
+                  { key: "clients", title: "Clients", accent: "text-cyan-700", values: [`${monthlyReportQuery.data?.sections.clients.newClients || 0} nouveaux clients`, `${monthlyReportQuery.data?.sections.clients.interactions || 0} échanges`, `${monthlyReportQuery.data?.sections.clients.documents || 0} documents`] },
+                  { key: "billing", title: "Facturation", accent: "text-rose-700", values: [`${monthlyReportQuery.data?.sections.billing.quotes || 0} devis`, `${monthlyReportQuery.data?.sections.billing.invoices || 0} factures`, `${monthlyReportQuery.data?.sections.billing.overdue || 0} en retard`] },
+                ].map(section => <button type="button" key={section.key} onClick={() => openDashboardModule(section.key === "accounting" ? "accounting" : section.key)} className="text-left rounded-2xl border border-slate-200 bg-slate-50 p-4 transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400"><p className={`font-semibold ${section.accent}`}>{section.title}</p><div className="mt-3 space-y-1.5 text-xs text-slate-600">{section.values.map(value => <p key={value}>{value}</p>)}</div><span className="mt-3 inline-flex items-center text-xs font-medium text-slate-500">Ouvrir le module <ArrowRight className="ml-1 h-3.5 w-3.5" /></span></button>)}</div>}</CardContent>
+              </Card>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -592,7 +796,7 @@ export default function Home() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Dialog open={isTimeEntryOpen} onOpenChange={setIsTimeEntryOpen}>
+              <Dialog open={isTimeEntryOpen} onOpenChange={(open) => { setIsTimeEntryOpen(open); if (!open) setEditingTimeEntryId(null); }}>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="rounded-xl border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { const agentId = agentsQuery.data?.[0]?.id || 0; setSelectedTimeEntryAgentId(agentId || null); setTimeEntryForm(form => ({ ...form, agentId })); }}>
                     <ClipboardCheck className="w-4 h-4 mr-2" /> Nouveau pointage
@@ -600,7 +804,7 @@ export default function Home() {
                 </DialogTrigger>
                 <DialogContent className="max-w-lg bg-white rounded-2xl">
                   <DialogHeader>
-                    <DialogTitle>Ajouter un pointage à la feuille agent</DialogTitle>
+                    <DialogTitle>{editingTimeEntryId ? "Corriger un pointage" : "Ajouter un pointage à la feuille agent"}</DialogTitle>
                     <DialogDescription>Le pointage sera rattaché automatiquement au dossier de l’agent sélectionné.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
@@ -610,7 +814,7 @@ export default function Home() {
                     </div>
                     <div className="space-y-2">
                       <Label>Agent</Label>
-                      <Select value={timeEntryForm.agentId ? String(timeEntryForm.agentId) : ""} onValueChange={value => { const agentId = Number(value); setSelectedTimeEntryAgentId(agentId); setTimeEntryForm({ ...timeEntryForm, agentId }); }}>
+                      <Select disabled={Boolean(editingTimeEntryId)} value={timeEntryForm.agentId ? String(timeEntryForm.agentId) : ""} onValueChange={value => { const agentId = Number(value); setSelectedTimeEntryAgentId(agentId); setTimeEntryForm({ ...timeEntryForm, agentId }); }}>
                         <SelectTrigger><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger>
                         <SelectContent>{agentsQuery.data?.map(agent => <SelectItem key={agent.id} value={String(agent.id)}>{agent.name} · {agent.position}</SelectItem>)}</SelectContent>
                       </Select>
@@ -628,7 +832,39 @@ export default function Home() {
                     </div>
                     <div className="space-y-2"><Label>Note du pointage</Label><Textarea value={timeEntryForm.notes} onChange={e => setTimeEntryForm({ ...timeEntryForm, notes: e.target.value })} placeholder="Retard justifié, intervention extérieure…" /></div>
                   </div>
-                  <DialogFooter><Button disabled={!timeEntryForm.agentId || createTimeEntryMutation.isPending} onClick={() => createTimeEntryMutation.mutate(timeEntryForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createTimeEntryMutation.isPending ? "Enregistrement…" : "Enregistrer le pointage"}</Button></DialogFooter>
+                  <DialogFooter><Button disabled={!timeEntryForm.agentId || createTimeEntryMutation.isPending || updateTimeEntryMutation.isPending} onClick={handleSaveTimeEntry} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{createTimeEntryMutation.isPending || updateTimeEntryMutation.isPending ? "Enregistrement…" : editingTimeEntryId ? "Enregistrer la correction" : "Enregistrer le pointage"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={isLeaveEditOpen} onOpenChange={(open) => { setIsLeaveEditOpen(open); if (!open) setEditingLeaveId(null); }}>
+                <DialogContent className="max-w-lg bg-white rounded-2xl">
+                  <DialogHeader><DialogTitle>Corriger une demande de congé</DialogTitle><DialogDescription>Modifiez les dates, le type et la justification avant de sauvegarder.</DialogDescription></DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2"><Label>Type de congé</Label><Input value={leaveEditForm.leaveType} onChange={e => setLeaveEditForm({ ...leaveEditForm, leaveType: e.target.value })} /></div>
+                      <div className="space-y-2"><Label>Nombre de jours</Label><Input type="number" min="0.5" step="0.5" value={leaveEditForm.daysCount} onChange={e => setLeaveEditForm({ ...leaveEditForm, daysCount: Number(e.target.value) })} /></div>
+                      <div className="space-y-2"><Label>Date de début</Label><Input type="date" value={leaveEditForm.startDate} onChange={e => setLeaveEditForm({ ...leaveEditForm, startDate: e.target.value })} /></div>
+                      <div className="space-y-2"><Label>Date de fin</Label><Input type="date" value={leaveEditForm.endDate} onChange={e => setLeaveEditForm({ ...leaveEditForm, endDate: e.target.value })} /></div>
+                    </div>
+                    <div className="space-y-2"><Label>Motif / note RH</Label><Textarea value={leaveEditForm.reason} onChange={e => setLeaveEditForm({ ...leaveEditForm, reason: e.target.value })} placeholder="Précisez la demande ou sa correction…" /></div>
+                  </div>
+                  <DialogFooter><Button onClick={handleUpdateLeave} disabled={!editingLeaveId || updateLeaveMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{updateLeaveMutation.isPending ? "Enregistrement…" : "Enregistrer la correction"}</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={isAgentEditOpen} onOpenChange={setIsAgentEditOpen}>
+                <DialogContent className="max-w-2xl bg-white rounded-2xl">
+                  <DialogHeader><DialogTitle>Modifier la fiche agent</DialogTitle><DialogDescription>Corrigez les informations RH puis enregistrez la version à jour.</DialogDescription></DialogHeader>
+                  <div className="grid grid-cols-2 gap-4 py-4">
+                    <div className="space-y-2"><Label>Nom complet</Label><Input value={agentEditForm.name} onChange={e => setAgentEditForm({ ...agentEditForm, name: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Email professionnel</Label><Input type="email" value={agentEditForm.email} onChange={e => setAgentEditForm({ ...agentEditForm, email: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Téléphone</Label><Input value={agentEditForm.phone} onChange={e => setAgentEditForm({ ...agentEditForm, phone: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Poste / Fonction</Label><Input value={agentEditForm.position} onChange={e => setAgentEditForm({ ...agentEditForm, position: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Département</Label><Input value={agentEditForm.department} onChange={e => setAgentEditForm({ ...agentEditForm, department: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Date d’embauche</Label><Input type="date" value={agentEditForm.hireDate} onChange={e => setAgentEditForm({ ...agentEditForm, hireDate: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Salaire net (€)</Label><Input type="number" min="0" value={agentEditForm.salary} onChange={e => setAgentEditForm({ ...agentEditForm, salary: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>Type de contrat</Label><Select value={agentEditForm.contractType} onValueChange={value => setAgentEditForm({ ...agentEditForm, contractType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="CDI">CDI</SelectItem><SelectItem value="CDD">CDD</SelectItem><SelectItem value="Stage">Stage</SelectItem><SelectItem value="Freelance">Freelance</SelectItem></SelectContent></Select></div>
+                    <div className="col-span-2 space-y-2"><Label>Note interne RH</Label><Textarea value={agentEditForm.notes} onChange={e => setAgentEditForm({ ...agentEditForm, notes: e.target.value })} placeholder="Observations utiles sur le dossier agent…" /></div>
+                  </div>
+                  <DialogFooter><Button onClick={handleUpdateAgent} disabled={updateAgentMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{updateAgentMutation.isPending ? "Enregistrement…" : "Enregistrer les modifications"}</Button></DialogFooter>
                 </DialogContent>
               </Dialog>
             </div>
@@ -649,7 +885,7 @@ export default function Home() {
                       <TableHead>Ancienneté</TableHead>
                       <TableHead>Salaire Net</TableHead>
                       <TableHead>Statut</TableHead>
-                      <TableHead className="text-right">Pointage</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -674,7 +910,7 @@ export default function Home() {
                           <TableCell>{seniority} an(s) (depuis {String(agent.hireDate)})</TableCell>
                           <TableCell>{Number(agent.salary).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</TableCell>
                           <TableCell><Badge className="bg-emerald-100 text-emerald-800">{agent.status}</Badge></TableCell>
-                          <TableCell className="text-right"><Button size="sm" variant="outline" className="rounded-lg border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { setSelectedTimeEntryAgentId(agent.id); setTimeEntryForm(form => ({ ...form, agentId: agent.id })); setIsTimeEntryOpen(true); }}><Clock className="w-3.5 h-3.5 mr-1" /> Pointer</Button></TableCell>
+                          <TableCell className="text-right"><div className="flex justify-end gap-2"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Modifier la fiche agent" onClick={() => openAgentEdit(agent)}><Pencil className="w-3.5 h-3.5" /></Button><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50" title="Supprimer la fiche agent" onClick={() => handleDeleteAgent(agent)} disabled={deleteAgentMutation.isPending}><Trash2 className="w-3.5 h-3.5" /></Button><Button size="sm" variant="outline" className="rounded-lg border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => { setSelectedTimeEntryAgentId(agent.id); setTimeEntryForm(form => ({ ...form, agentId: agent.id })); setIsTimeEntryOpen(true); }}><Clock className="w-3.5 h-3.5 mr-1" /> Pointer</Button></div></TableCell>
                         </TableRow>
                       );
                     })}
@@ -689,7 +925,7 @@ export default function Home() {
             </Card>
 
             {/* Section Pointages, Congés et Avances sur salaire */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader>
                   <CardTitle>Feuille de Pointage & Horaires</CardTitle>
@@ -703,22 +939,45 @@ export default function Home() {
                         <TableHead>Agent ID</TableHead>
                         <TableHead>Heures</TableHead>
                         <TableHead>Statut</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {timeEntriesQuery.data?.map(te => (
                         <TableRow key={te.id}>
-                          <TableCell>{String(te.date)}</TableCell>
+                          <TableCell>{String(te.date).slice(0, 10)}</TableCell>
                           <TableCell>{agentsQuery.data?.find(agent => agent.id === te.agentId)?.name || `Agent #${te.agentId}`}</TableCell>
                           <TableCell className="font-semibold">{te.hoursWorked}h</TableCell>
                           <TableCell><Badge variant="outline">{te.status}</Badge></TableCell>
+                          <TableCell className="text-right"><div className="flex justify-end gap-1"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Corriger le pointage" onClick={() => openTimeEntryEdit(te)}><Pencil className="w-3.5 h-3.5" /></Button><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50" title="Supprimer le pointage" onClick={() => handleDeleteTimeEntry(te)} disabled={deleteTimeEntryMutation.isPending}><Trash2 className="w-3.5 h-3.5" /></Button></div></TableCell>
                         </TableRow>
                       ))}
                       {(!timeEntriesQuery.data || timeEntriesQuery.data.length === 0) && (
-                        <TableRow><TableCell colSpan={4} className="text-center py-4 text-slate-500">Aucun pointage récent.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={5} className="text-center py-4 text-slate-500">Aucun pointage récent.</TableCell></TableRow>
                       )}
                     </TableBody>
                   </Table>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-200 shadow-sm bg-white">
+                <CardHeader>
+                  <CardTitle>Demandes de congé</CardTitle>
+                  <CardDescription>Correction et suppression des demandes RH</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-80 overflow-y-auto">
+                    {leavesQuery.data?.map(leave => {
+                      const agent = agentsQuery.data?.find(item => item.id === leave.agentId);
+                      return <div key={leave.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2"><div><p className="font-medium text-sm text-slate-900">{agent?.name || `Agent #${leave.agentId}`}</p><p className="text-xs text-slate-500">{leave.leaveType} · {leave.daysCount} jour(s)</p></div><Badge variant="outline">{leave.status}</Badge></div>
+                        <p className="text-xs text-slate-500">{String(leave.startDate).slice(0, 10)} → {String(leave.endDate).slice(0, 10)}</p>
+                        {leave.reason && <p className="text-xs text-slate-600 line-clamp-2">{leave.reason}</p>}
+                        <div className="flex justify-end gap-1"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Corriger la demande" onClick={() => openLeaveEdit(leave)}><Pencil className="w-3.5 h-3.5" /></Button><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50" title="Supprimer la demande" onClick={() => handleDeleteLeave(leave)} disabled={deleteLeaveMutation.isPending}><Trash2 className="w-3.5 h-3.5" /></Button></div>
+                      </div>;
+                    })}
+                    {(!leavesQuery.data || leavesQuery.data.length === 0) && <p className="py-8 text-center text-sm text-slate-500">Aucune demande de congé.</p>}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -765,7 +1024,10 @@ export default function Home() {
               </div>
               <div className="flex items-center space-x-3">
                 <Button onClick={exportAccountingCSV} variant="outline" className="border-slate-300 rounded-xl">
-                  <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" /> Exporter CSV / Excel
+                  <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" /> Exporter CSV
+                </Button>
+                <Button onClick={exportAccountingExcel} variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl">
+                  <Download className="w-4 h-4 mr-2" /> Backup Excel
                 </Button>
                 <Dialog open={isTxOpen} onOpenChange={setIsTxOpen}>
                   <DialogTrigger asChild>
@@ -804,12 +1066,28 @@ export default function Home() {
                         <Label>Description détaillée</Label>
                         <Textarea value={txForm.description} onChange={e => setTxForm({...txForm, description: e.target.value})} placeholder="Détail du mouvement..." />
                       </div>
+                      <div className="space-y-2">
+                        <Label>Note interne comptable</Label>
+                        <Textarea value={txForm.internalNote} onChange={e => setTxForm({...txForm, internalNote: e.target.value})} placeholder="Note visible uniquement par l’équipe comptable…" />
+                      </div>
                     </div>
                     <DialogFooter>
                       <Button onClick={() => createTxMutation.mutate(txForm)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">
                         Enregistrer
                       </Button>
                     </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <Dialog open={isTxEditOpen} onOpenChange={setIsTxEditOpen}>
+                  <DialogContent className="max-w-lg bg-white rounded-2xl">
+                    <DialogHeader><DialogTitle>Corriger un mouvement comptable</DialogTitle><DialogDescription>Modifiez les informations ou ajoutez une note interne de suivi.</DialogDescription></DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={txForm.type} onValueChange={value => setTxForm({ ...txForm, type: value as typeof txForm.type })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="entrée">Entrée</SelectItem><SelectItem value="sortie">Sortie</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Montant (€)</Label><Input type="number" min="0" value={txForm.amount} onChange={e => setTxForm({ ...txForm, amount: e.target.value })} /></div></div>
+                      <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Catégorie</Label><Input value={txForm.category} onChange={e => setTxForm({ ...txForm, category: e.target.value })} /></div><div className="space-y-2"><Label>Date</Label><Input type="date" value={txForm.date} onChange={e => setTxForm({ ...txForm, date: e.target.value })} /></div></div>
+                      <div className="space-y-2"><Label>Description</Label><Textarea value={txForm.description} onChange={e => setTxForm({ ...txForm, description: e.target.value })} /></div>
+                      <div className="space-y-2"><Label>Note interne</Label><Textarea value={txForm.internalNote} onChange={e => setTxForm({ ...txForm, internalNote: e.target.value })} placeholder="Correction, justification ou rappel interne…" /></div>
+                    </div>
+                    <DialogFooter><Button onClick={handleUpdateTransaction} disabled={updateTxMutation.isPending} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">{updateTxMutation.isPending ? "Enregistrement…" : "Enregistrer la correction"}</Button></DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
@@ -828,8 +1106,10 @@ export default function Home() {
                       <TableHead>Type</TableHead>
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Description</TableHead>
+                      <TableHead>Note interne</TableHead>
                       <TableHead>Mode</TableHead>
                       <TableHead className="text-right">Montant</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -843,14 +1123,16 @@ export default function Home() {
                         </TableCell>
                         <TableCell className="font-medium">{tx.category}</TableCell>
                         <TableCell className="text-slate-600">{tx.description}</TableCell>
+                        <TableCell className="max-w-[220px] text-xs text-slate-500">{tx.internalNote || "—"}</TableCell>
                         <TableCell>{tx.paymentMethod}</TableCell>
                         <TableCell className={`text-right font-bold ${tx.type === 'entrée' ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {tx.type === 'entrée' ? '+' : '-'}{Number(tx.amount).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                         </TableCell>
+                        <TableCell className="text-right"><Button size="icon" variant="outline" className="h-8 w-8 rounded-lg" title="Corriger le mouvement" onClick={() => openTransactionEdit(tx)}><Pencil className="w-3.5 h-3.5" /></Button></TableCell>
                       </TableRow>
                     ))}
                     {(!transactionsQuery.data || transactionsQuery.data.length === 0) && (
-                      <TableRow><TableCell colSpan={6} className="text-center py-6 text-slate-500">Aucun mouvement enregistré.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={8} className="text-center py-6 text-slate-500">Aucun mouvement enregistré.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
