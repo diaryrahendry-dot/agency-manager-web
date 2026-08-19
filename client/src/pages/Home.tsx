@@ -257,12 +257,34 @@ export default function Home() {
     onError: (err) => toast.error("Impossible de supprimer le pointage : " + err.message),
   });
 
+  const createTicketMutation = trpc.hr.createTicket.useMutation({
+    onSuccess: (data, variables) => {
+      if ((variables as any).__fromLeave) {
+        // Silencieux ou toast combiné
+      } else {
+        toast.success("Ticket de demande créé dans le suivi RH.");
+        setIsTicketOpen(false);
+      }
+      utils.hr.listTickets.invalidate();
+      utils.accounting.monthlyReport.invalidate();
+    },
+    onError: (err) => toast.error("Impossible de créer le ticket : " + err.message),
+  });
+
   const createLeaveMutation = trpc.hr.createLeave.useMutation({
-    onSuccess: () => {
-      toast.success("Demande de congé enregistrée.");
+    onSuccess: (data, variables) => {
+      toast.success("Demande de congé enregistrée et ticket associé créé !");
       setIsLeaveOpen(false);
       utils.hr.listLeaves.invalidate();
       utils.accounting.monthlyReport.invalidate();
+      createTicketMutation.mutate({
+        agentId: variables.agentId,
+        title: `Demande de congé (${variables.leaveType}) - ${variables.daysCount} jour(s)`,
+        description: `Période : du ${variables.startDate} au ${variables.endDate}. Motif : ${variables.reason || 'Non spécifié'}`,
+        priority: "normale",
+        category: "Demande de congé",
+        __fromLeave: true,
+      } as any);
     },
     onError: (err) => toast.error("Impossible d’enregistrer le congé : " + err.message),
   });
@@ -275,16 +297,6 @@ export default function Home() {
       utils.accounting.monthlyReport.invalidate();
     },
     onError: (err) => toast.error("Impossible d’enregistrer l’avance : " + err.message),
-  });
-
-  const createTicketMutation = trpc.hr.createTicket.useMutation({
-    onSuccess: () => {
-      toast.success("Ticket de demande créé dans le suivi RH.");
-      setIsTicketOpen(false);
-      utils.hr.listTickets.invalidate();
-      utils.accounting.monthlyReport.invalidate();
-    },
-    onError: (err) => toast.error("Impossible de créer le ticket : " + err.message),
   });
 
   const updateLeaveMutation = trpc.hr.updateLeave.useMutation({
