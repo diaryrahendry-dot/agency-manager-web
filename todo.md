@@ -106,6 +106,6 @@
 - [x] Renforcer le Budget Planner avec un bouton explicite « Convertir en sortie de caisse » et la mise à jour automatique de la comptabilité
 - [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
 
-- [ ] Séparer les statistiques en deux sections distinctes : Statistiques RH (dépenses et sorties journalières/mensuelles, par équipe/agent) et Statistiques CA (factures par période, client, service et statut : encaissé, en retard, annulé)
-- [ ] Mettre à jour les procédures tRPC et l’interface de navigation pour les deux rubriques spécialisées
-- [ ] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+- [x] Séparer les statistiques en deux sections distinctes : Statistiques RH (dépenses et sorties journalières/mensuelles, par équipe/agent) et Statistiques CA (factures par période, client, service et statut : encaissé, en retard, annulé)
+- [x] Mettre à jour les procédures tRPC et l’interface de navigation pour les deux rubriques spécialisées
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
