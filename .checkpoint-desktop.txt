@@ -1,0 +1,1 @@
+Packaging desktop Windows réussi : installateur NSIS (.exe) et version portable générés dans release/ avec wrapper Electron et separation stricte des données clients.

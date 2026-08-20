@@ -219,3 +219,23 @@
 - [x] Diagnostiquer et corriger le rendu de la modale Formation pour que les tutoriels s’affichent instantanément à l’ouverture
 - [x] Enrichir le contenu pédagogique et rendre les onglets de formation immédiatement actifs sans état vide
 - [x] Valider avec les tests Vitest, TypeScript, build et capture visuelle
+
+- [x] Rédiger le guide complet de formation AgencyManager Pro correspondant aux 5 rubriques (RH, Comptabilité, CRM, Facturation, Paramètres)
+- [x] Mettre en forme le document au format Markdown professionnel et l’attacher pour téléchargement
+
+- [x] Intégrer le texte intégral du guide de formation dans la modale / fenêtre volante de la rubrique Formation
+- [x] Assurer un affichage scrollable fluide, des sections structurées et des raccourcis de navigation
+- [x] Valider avec les tests unitaires Vitest, TypeScript, le build et sauvegarder un checkpoint final
+
+- [x] Créer le manifeste PWA `manifest.json` et le service worker pour l’installabilité sur tout système
+- [x] Ajouter un bouton « Installer l’application » dans l’interface et un guide d’installation multiplateforme (Windows, macOS, Linux, Mobile)
+- [x] Valider avec les tests Vitest, TypeScript, le build et sauvegarder un checkpoint final
+
+- [x] Rédiger le guide d’architecture et de déploiement local / sauvegarde Google Drive d’AgencyManager Pro
+- [x] Valider avec les tests unitaires Vitest, TypeScript et un checkpoint final
+
+- [x] Créer l’architecture Electron pour embarquer l’application full-stack en mode bureau autonome
+- [x] Configurer `electron-builder` pour cibler l’exécutable Windows `.exe` (installateur NSIS)
+- [x] Compiler et générer le paquet `.exe` d’AgencyManager Pro
+- [x] Valider avec les tests, le build et livrer l’installateur avec sa documentation consolidée
+- [ ] Provisionner automatiquement un espace client isolé lors de la création d’un compte client et générer un lien d’accès sécurisé avec rattachement au projet

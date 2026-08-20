@@ -69,6 +69,22 @@ export const supervisorTeams = mysqlTable("supervisor_teams", {
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type SupervisorTeam = typeof supervisorTeams.$inferSelect;
 
+// Invitations d’accès à un espace client, avec token haché et expiration.
+export const projectInvitations = mysqlTable("project_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  invitedEmail: varchar("invitedEmail", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  status: mysqlEnum("status", ["pending", "accepted", "revoked", "expired"]).default("pending").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ tokenHashUnique: uniqueIndex("project_invitation_token_unique").on(table.tokenHash) }));
+
+export type ProjectInvitation = typeof projectInvitations.$inferSelect;
+
 // 1. Module RH
 export const agents = mysqlTable("agents", {
   id: int("id").autoincrement().primaryKey(),

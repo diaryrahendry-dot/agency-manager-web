@@ -88,3 +88,11 @@ createRoot(document.getElementById("root")!).render(
     </trpc.Provider>
   </QueryClientProvider>
 );
+
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // ignore SW registration errors in sandbox
+    });
+  });
+}

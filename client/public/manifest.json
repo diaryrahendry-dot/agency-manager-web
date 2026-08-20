@@ -1,0 +1,16 @@
+{
+  "name": "AgencyManager Pro",
+  "short_name": "AgencyManager",
+  "description": "Logiciel de gestion d'agence tout-en-un : RH, comptabilité, CRM, devis et facturation.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0ea5e9",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

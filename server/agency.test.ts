@@ -453,3 +453,76 @@ describe("Synchronisation des tickets RH", () => {
     });
   });
 });
+
+
+describe("Provisionnement et accès des espaces clients", () => {
+  const adminContext: TrpcContext = {
+    user: { id: 1, openId: "provider-admin", email: "provider@agency.com", name: "Prestataire", loginMethod: "manus", role: "admin", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    req: { protocol: "https", headers: {} } as any,
+    res: { clearCookie: () => {} } as any,
+  };
+
+  it("crée un espace isolé et retourne un lien d’accès à expiration", async () => {
+    const caller = appRouter.createCaller(adminContext);
+    const result = await withFakeDb([
+      [],
+      [],
+      [{ id: 17, name: "Client Nova", email: "client@nova.test", accountStatus: "invited" }],
+      [{ id: 42, name: "Client Nova", slug: "client-nova" }],
+    ], async database => caller.provider.createClientEnvironment({
+      agencyName: "Client Nova",
+      clientContactName: "Contact Nova",
+      clientEmail: "CLIENT@NOVA.TEST",
+      origin: "https://app.example.test",
+      managementTemplate: "agence_complete",
+      defaultCurrency: "MGA",
+      jurisdiction: "mg",
+      assignAsAdmin: true,
+    }));
+
+    expect(result).toMatchObject({ success: true, projectId: 42, slug: "client-nova", clientEmail: "client@nova.test" });
+    expect(result.accessUrl).toMatch(/^https:\/\/app\.example\.test\/invite\/[0-9a-f-]+$/);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+    expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("accepte le lien uniquement avec l’email invité et active l’espace", async () => {
+    const caller = appRouter.createCaller({ ...adminContext, user: { ...adminContext.user!, id: 17, email: "client@nova.test", role: "superviseur" } });
+    const token = "a".repeat(36);
+    const result = await withFakeDb([
+      [{ id: 8, projectId: 42, userId: 17, invitedEmail: "client@nova.test", status: "pending", expiresAt: new Date(Date.now() + 60_000) }],
+      [{ id: 99 }],
+    ], async database => {
+      const accepted = await caller.provider.acceptInvitation({ token });
+      expect(database.update).toHaveBeenCalledTimes(2);
+      return accepted;
+    });
+    expect(result).toEqual({ success: true, projectId: 42 });
+  });
+
+  it("refuse l’acceptation par une adresse email différente", async () => {
+    const caller = appRouter.createCaller({ ...adminContext, user: { ...adminContext.user!, id: 17, email: "intrus@nova.test", role: "superviseur" } });
+    await expect(withFakeDb([
+      [{ id: 8, projectId: 42, userId: 17, invitedEmail: "client@nova.test", status: "pending", expiresAt: new Date(Date.now() + 60_000) }],
+    ], async () => caller.provider.acceptInvitation({ token: "b".repeat(36) }))).rejects.toThrow("adresse email invitée");
+  });
+});
+
+  it("révoque l’ancien lien et régénère l’accès d’un espace client", async () => {
+    const caller = appRouter.createCaller({
+      user: { id: 1, openId: "provider-admin", email: "provider@agency.com", name: "Prestataire", loginMethod: "manus", role: "admin", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+      req: { protocol: "https", headers: {} } as any,
+      res: { clearCookie: () => {} } as any,
+    });
+    const result = await withFakeDb([
+      [{ id: 42, name: "Client Nova" }],
+      [{ userId: 17, email: "client@nova.test" }],
+    ], async database => {
+      const regenerated = await caller.provider.resendClientInvitation({ projectId: 42, origin: "https://app.example.test" });
+      expect(database.update).toHaveBeenCalledTimes(1);
+      expect(database.insert).toHaveBeenCalledTimes(1);
+      return regenerated;
+    });
+    expect(result).toMatchObject({ success: true, projectName: "Client Nova", clientEmail: "client@nova.test" });
+    expect(result.accessUrl).toMatch(/^https:\/\/app\.example\.test\/invite\/[0-9a-f-]+$/);
+  });

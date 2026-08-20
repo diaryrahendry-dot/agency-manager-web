@@ -237,13 +237,22 @@ export default function Home() {
     jurisdiction: "fr" as "fr" | "mg",
     assignAsAdmin: true,
   });
+  const [providerInviteResult, setProviderInviteResult] = useState<{ accessUrl: string; projectName: string; clientEmail: string; expiresAt: Date | string } | null>(null);
   const createProviderClientMutation = trpc.provider.createClientEnvironment.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
+      setProviderInviteResult(result);
       setIsProviderClientOpen(false);
       setProviderClientForm({ agencyName: "", clientContactName: "", clientEmail: "", managementTemplate: "agence_complete", defaultCurrency: "MGA", jurisdiction: "fr", assignAsAdmin: true });
       utils.provider.listClientEnvironments.invalidate();
       utils.admin.listProjects.invalidate();
-      toast.success("Environnement client créé et invitation envoyée avec succès !");
+      toast.success("Espace client créé. Le lien d’accès est prêt à être transmis.");
+    },
+    onError: error => toast.error(`Erreur: ${error.message}`),
+  });
+  const resendProviderInvitationMutation = trpc.provider.resendClientInvitation.useMutation({
+    onSuccess: result => {
+      setProviderInviteResult(result);
+      toast.success("Nouveau lien d’accès généré.");
     },
     onError: error => toast.error(`Erreur: ${error.message}`),
   });
@@ -2616,12 +2625,23 @@ export default function Home() {
                           <Switch checked={providerClientForm.assignAsAdmin} onCheckedChange={checked => setProviderClientForm(current => ({ ...current, assignAsAdmin: checked }))} />
                         </div>
                       </div>
-                      <DialogFooter><Button variant="outline" onClick={() => setIsProviderClientOpen(false)}>Annuler</Button><Button className="bg-indigo-600 text-white hover:bg-indigo-500" disabled={createProviderClientMutation.isPending || !providerClientForm.agencyName.trim() || !providerClientForm.clientEmail.trim()} onClick={() => createProviderClientMutation.mutate(providerClientForm)}>{createProviderClientMutation.isPending ? "Création…" : "Créer et inviter le client"}</Button></DialogFooter>
+                      <DialogFooter><Button variant="outline" onClick={() => setIsProviderClientOpen(false)}>Annuler</Button><Button className="bg-indigo-600 text-white hover:bg-indigo-500" disabled={createProviderClientMutation.isPending || !providerClientForm.agencyName.trim() || !providerClientForm.clientEmail.trim()} onClick={() => createProviderClientMutation.mutate({ ...providerClientForm, origin: window.location.origin })}>{createProviderClientMutation.isPending ? "Création…" : "Créer et inviter le client"}</Button></DialogFooter>
                     </DialogContent>
                   </Dialog>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
+                {providerInviteResult && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div><p className="font-semibold text-emerald-950">Espace « {providerInviteResult.projectName} » créé</p><p className="text-sm text-emerald-800">Transmettez ce lien à {providerInviteResult.clientEmail}. Il expire le {new Date(providerInviteResult.expiresAt).toLocaleString("fr-FR")}.</p></div>
+                    <Button variant="ghost" size="sm" className="text-emerald-800" onClick={() => setProviderInviteResult(null)}>Fermer</Button>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <Input readOnly value={providerInviteResult.accessUrl} className="bg-white text-xs" aria-label="Lien d’accès client" />
+                    <Button className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => { void navigator.clipboard.writeText(providerInviteResult.accessUrl); toast.success("Lien copié dans le presse-papiers."); }}><ClipboardCheck className="mr-2 h-4 w-4" /> Copier le lien</Button>
+                    <Button variant="outline" className="shrink-0 border-emerald-300 text-emerald-800" onClick={() => window.open(providerInviteResult.accessUrl, "_blank", "noopener,noreferrer")}><ExternalLink className="mr-2 h-4 w-4" /> Ouvrir</Button>
+                  </div>
+                </div>}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {providerEnvironmentsQuery.data?.map(env => (
                     <div key={env.id} className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm space-y-3">
@@ -2650,9 +2670,9 @@ export default function Home() {
                         <Button variant="outline" size="sm" onClick={() => setActiveProjectMutation.mutate({ projectId: env.id })}>
                           Basculer dans l’espace
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-rose-700 hover:bg-rose-50" onClick={() => toggleEnvironmentLockMutation.mutate({ projectId: env.id, locked: env.showRevenueDashboard === false })}>
+                        <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" size="sm" disabled={resendProviderInvitationMutation.isPending} onClick={() => resendProviderInvitationMutation.mutate({ projectId: env.id, origin: window.location.origin })}><Mail className="mr-1.5 h-3.5 w-3.5" /> Nouveau lien</Button><Button variant="ghost" size="sm" className="text-rose-700 hover:bg-rose-50" onClick={() => toggleEnvironmentLockMutation.mutate({ projectId: env.id, locked: env.showRevenueDashboard === false })}>
                           {env.showRevenueDashboard === false ? "Déverrouiller" : "Confidentialité"}
-                        </Button>
+                        </Button></div>
                       </div>
                     </div>
                   ))}
@@ -2752,25 +2772,25 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-4 shadow-xs">
+                  <div className="max-h-[60vh] overflow-y-auto pr-2 rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-6 shadow-xs">
                     {activeTrainingModule === "rh" && (
                       <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-teal-900 flex items-center gap-2"><span>👥</span> Guide Rubrique RH & Agents</h3>
-                          <Badge className="bg-teal-100 text-teal-800 border-teal-200">Module opérationnel</Badge>
+                          <h3 className="text-base font-bold text-teal-900 flex items-center gap-2"><span>👥</span> Guide Officiel : Module RH, Pointages & Avances</h3>
+                          <Badge className="bg-teal-100 text-teal-800 border-teal-200">Opérationnel</Badge>
                         </div>
-                        <p>
-                          La gestion des ressources humaines repose sur un suivi précis en journées de travail (1 journée standard = 8 heures). Chaque agent dispose d'une fiche complète intégrant son contrat, ses documents officiels et son ancienneté.
+                        <p className="leading-relaxed">
+                          La gestion des ressources humaines dans AgencyManager Pro repose sur un suivi rigoureux en journées de travail (où 1 journée standard équivaut à 8 heures). Chaque agent dispose d'une fiche complète intégrant son contrat, ses pièces justificatives, son ancienneté et ses informations personnelles.
                         </p>
-                        <div className="rounded-2xl border border-teal-200 bg-white p-4 space-y-2 shadow-xs">
-                          <p className="font-semibold text-teal-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
-                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
-                            <li><strong>Pointages en jours :</strong> Enregistrez les heures travaillées. Une fois validés par le collaborateur, les pointages sont verrouillés pour garantir l'intégrité de la paie.</li>
-                            <li><strong>Congés et soldes :</strong> Le solde de congés est mis à jour dynamiquement et se décompte à la fin de la période active.</li>
-                            <li><strong>Avances sur salaire :</strong> Les demandes d'avance peuvent être converties en sorties de caisse comptables depuis le planning superviseur en un clic.</li>
+                        <div className="rounded-2xl border border-teal-200 bg-white p-4 space-y-3 shadow-xs">
+                          <p className="font-semibold text-teal-900 text-xs uppercase tracking-wider">Procédures et règles clés :</p>
+                          <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700">
+                            <li><strong>Pointages quotidiens :</strong> Les collaborateurs enregistrent leurs journées travaillées. Une fois créés, les pointages sont verrouillés pour garantir l'intégrité de la paie et empêcher les modifications non autorisées.</li>
+                            <li><strong>Gestion des congés :</strong> Les demandes de congé génèrent automatiquement un ticket de suivi. Le solde de congés restants se décompte de manière sécurisée à la fin de la période active. Les collaborateurs et superviseurs disposent de boutons dédiés pour modifier ou annuler une demande selon son état.</li>
+                            <li><strong>Avances sur salaire et sorties de caisse :</strong> Les demandes d'avance accordées par un superviseur peuvent être transformées en un clic en sorties de caisse comptables depuis le planning superviseur, enregistrant instantanément l'écriture dans le journal de trésorerie et mettant à jour le statut RH.</li>
                           </ul>
                         </div>
-                        <div className="pt-2">
+                        <div className="pt-2 flex justify-end">
                           <Button className="bg-teal-600 text-white hover:bg-teal-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("hr"); }}>
                             Accéder à la rubrique RH <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>
@@ -2781,21 +2801,21 @@ export default function Home() {
                     {activeTrainingModule === "compta" && (
                       <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-sky-900 flex items-center gap-2"><span>💰</span> Guide Rubrique Comptabilité</h3>
+                          <h3 className="text-base font-bold text-sky-900 flex items-center gap-2"><span>💰</span> Guide Officiel : Comptabilité & Trésorerie</h3>
                           <Badge className="bg-sky-100 text-sky-800 border-sky-200">Trésorerie & CA</Badge>
                         </div>
-                        <p>
-                          Le module de comptabilité centralise toutes les entrées et sorties de trésorerie en devises doubles (EUR et MGA) avec un taux de change paramétrable.
+                        <p className="leading-relaxed">
+                          Le module de comptabilité centralise l'ensemble des flux financiers de l'agence. Il prend en charge la double devise (Euro EUR et Ariary MGA) avec un taux de change paramétrable pour convertir automatiquement les montants et assurer la consolidation financière.
                         </p>
-                        <div className="rounded-2xl border border-sky-200 bg-white p-4 space-y-2 shadow-xs">
-                          <p className="font-semibold text-sky-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
-                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
-                            <li><strong>Mouvements :</strong> Enregistrez chaque entrée ou sortie de caisse avec sa catégorie, son mode de paiement et une note interne si nécessaire.</li>
-                            <li><strong>Conversions automatiques :</strong> Les factures payées et les avances validées peuvent être converties instantanément en écritures comptables.</li>
-                            <li><strong>Reporting et Exports :</strong> Retrouvez les rapports mensuels automatiques et exportez vos données en Excel ou CSV en un clic.</li>
+                        <div className="rounded-2xl border border-sky-200 bg-white p-4 space-y-3 shadow-xs">
+                          <p className="font-semibold text-sky-900 text-xs uppercase tracking-wider">Procédures et règles clés :</p>
+                          <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700">
+                            <li><strong>Entrées et sorties de caisse :</strong> Chaque mouvement est qualifié par son type (recette ou dépense), sa catégorie, son mode de règlement et une note interne de suivi. Les factures payées et les avances sur salaire validées peuvent y être converties automatiquement.</li>
+                            <li><strong>Reporting et Budget Planner :</strong> Suivez le chiffre d'affaires mensuel et annuel à l'aide de graphiques dynamiques. Le planificateur de budget permet d'enregistrer les dépenses récurrentes et de convertir des feuilles entières en sorties de caisse.</li>
+                            <li><strong>Exportations :</strong> Les données comptables peuvent être sauvegardées ou exportées aux formats Excel et CSV pour vos bilans et audits.</li>
                           </ul>
                         </div>
-                        <div className="pt-2">
+                        <div className="pt-2 flex justify-end">
                           <Button className="bg-sky-600 text-white hover:bg-sky-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("accounting"); }}>
                             Accéder à la comptabilité <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>
@@ -2806,20 +2826,21 @@ export default function Home() {
                     {activeTrainingModule === "crm" && (
                       <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-amber-900 flex items-center gap-2"><span>📊</span> Guide Rubrique CRM & Leads</h3>
+                          <h3 className="text-base font-bold text-amber-900 flex items-center gap-2"><span>📊</span> Guide Officiel : CRM Leads & Base Client</h3>
                           <Badge className="bg-amber-100 text-amber-800 border-amber-200">Commercial</Badge>
                         </div>
-                        <p>
-                          Le CRM combine la souplesse d'un tableau Kanban et d'un tableur dynamique pour qualifier vos opportunités commerciales, planifier les relances et suivre le montant attendu de chaque vente.
+                        <p className="leading-relaxed">
+                          Le CRM combine un tableau Kanban dynamique et une vue tableur pour qualifier vos prospects, programmer vos rendez-vous de suivi et estimer le chiffre d'affaires prévisionnel de vos ventes.
                         </p>
-                        <div className="rounded-2xl border border-amber-200 bg-white p-4 space-y-2 shadow-xs">
-                          <p className="font-semibold text-amber-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
-                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
-                            <li><strong>Glisser-déposer / Statuts :</strong> Faites progresser vos prospects du premier contact jusqu'à la signature du contrat.</li>
-                            <li><strong>Conversion en client :</strong> Dès qu'un contrat est confirmé, transformez le lead en client pour basculer automatiquement ses données dans la base clients.</li>
+                        <div className="rounded-2xl border border-amber-200 bg-white p-4 space-y-3 shadow-xs">
+                          <p className="font-semibold text-amber-900 text-xs uppercase tracking-wider">Procédures et règles clés :</p>
+                          <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700">
+                            <li><strong>Qualification des leads :</strong> Suivez les montants attendus, les dates de prochain contact et les niveaux de priorité de chaque opportunité.</li>
+                            <li><strong>Transformation en client :</strong> Dès qu'un contrat est confirmé, transformez instantanément le lead en client pour l'ajouter à la base clients dotée de fiches individualisées.</li>
+                            <li><strong>Historique et Documents :</strong> Chaque fiche client centralise l'historique de ses échanges, de ses factures, de ses devis et de ses avoirs associés.</li>
                           </ul>
                         </div>
-                        <div className="pt-2">
+                        <div className="pt-2 flex justify-end">
                           <Button className="bg-amber-600 text-white hover:bg-amber-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("crm"); }}>
                             Accéder au CRM <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>
@@ -2830,20 +2851,21 @@ export default function Home() {
                     {activeTrainingModule === "facturation" && (
                       <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-orange-900 flex items-center gap-2"><span>📄</span> Guide Rubrique Devis & Facturation</h3>
+                          <h3 className="text-base font-bold text-orange-900 flex items-center gap-2"><span>📄</span> Guide Officiel : Devis, Facturation & Catalogue</h3>
                           <Badge className="bg-orange-100 text-orange-800 border-orange-200">Documents légaux</Badge>
                         </div>
-                        <p>
-                          Émettez des devis et factures professionnels respectant les normes françaises et malgaches, enrichis par un catalogue de prestations unifié et des calculs automatiques de TVA et de remises.
+                        <p className="leading-relaxed">
+                          Le module de facturation permet d'émettre des devis, des factures et des avoirs conformes aux normes juridiques françaises et malgaches. Il s'appuie sur un catalogue de prestations unifié pour accélérer la saisie.
                         </p>
-                        <div className="rounded-2xl border border-orange-200 bg-white p-4 space-y-2 shadow-xs">
-                          <p className="font-semibold text-orange-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
-                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
-                            <li><strong>Catalogue intégré :</strong> Sélectionnez directement vos prestations dans le catalogue lors de la création d'un document.</li>
-                            <li><strong>États et Brouillons :</strong> Modifiez les documents en statut brouillon, confirmez-les ou annulez-les en toute sécurité.</li>
+                        <div className="rounded-2xl border border-orange-200 bg-white p-4 space-y-3 shadow-xs">
+                          <p className="font-semibold text-orange-900 text-xs uppercase tracking-wider">Procédures et règles clés :</p>
+                          <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700">
+                            <li><strong>Catalogue de prestations :</strong> Lors de la création d'un devis ou d'une facture, vous pouvez sélectionner instantanément un article ou une prestation du catalogue pour remplir automatiquement les libellés, tarifs et taux de TVA.</li>
+                            <li><strong>Gestion des brouillons :</strong> Les documents en statut brouillon peuvent être modifiés, confirmés ou annulés à tout moment. Les factures payées peuvent générer automatiquement des entrées de caisse.</li>
+                            <li><strong>Avoirs sur facture :</strong> Émettez des avoirs rattachés à une facture pour gérer les remboursements ou corrections comptables.</li>
                           </ul>
                         </div>
-                        <div className="pt-2">
+                        <div className="pt-2 flex justify-end">
                           <Button className="bg-orange-600 text-white hover:bg-orange-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("billing"); }}>
                             Accéder à la facturation <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>
@@ -2854,20 +2876,21 @@ export default function Home() {
                     {activeTrainingModule === "parametres" && (
                       <div className="space-y-4 text-sm text-slate-700 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-indigo-900 flex items-center gap-2"><span>⚙️</span> Guide Rubrique Paramètres & Rôles</h3>
+                          <h3 className="text-base font-bold text-indigo-900 flex items-center gap-2"><span>⚙️</span> Guide Officiel : Paramètres, Rôles & Portail Prestataire</h3>
                           <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200">Administration</Badge>
                         </div>
-                        <p>
-                          Gérez les accès de votre équipe avec trois niveaux de rôles (Collaborateur, Superviseur, Admin) et configurez les permissions détaillées pour chaque profil.
+                        <p className="leading-relaxed">
+                          L'administration d'AgencyManager Pro offre un contrôle total sur la sécurité, les rôles des utilisateurs, la configuration des projets multiples et le portail de pilotage multi-clients pour les prestataires.
                         </p>
-                        <div className="rounded-2xl border border-indigo-200 bg-white p-4 space-y-2 shadow-xs">
-                          <p className="font-semibold text-indigo-900 text-xs uppercase tracking-wider">Points clés à retenir :</p>
-                          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-700">
-                            <li><strong>Sécurité et Rôles :</strong> Les collaborateurs disposent d'un espace restreint et sécurisé. Les superviseurs valident les équipes. Les admins pilotent les paramètres.</li>
-                            <li><strong>Multi-projets :</strong> Créez de nouveaux espaces cloisonnés avec des templates dédiés.</li>
+                        <div className="rounded-2xl border border-indigo-200 bg-white p-4 space-y-3 shadow-xs">
+                          <p className="font-semibold text-indigo-900 text-xs uppercase tracking-wider">Procédures et règles clés :</p>
+                          <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700">
+                            <li><strong>Gestion des accès et rôles :</strong> Attribuez les rôles Collaborateur, Superviseur ou Administrateur et personnalisez finement les permissions de chaque profil.</li>
+                            <li><strong>Portail Prestataire multi-clients :</strong> Provisionnez et administrez des environnements clients cloisonnés et sécurisés depuis une seule interface centrale.</li>
+                            <li><strong>Confidentialité :</strong> Masquez à volonté les indicateurs de chiffre d'affaires projet par projet selon vos besoins de pilotage.</li>
                           </ul>
                         </div>
-                        <div className="pt-2">
+                        <div className="pt-2 flex justify-end">
                           <Button className="bg-indigo-600 text-white hover:bg-indigo-500 rounded-xl text-xs font-bold shadow-xs" onClick={() => { setIsTrainingModalOpen(false); setActiveTab("settings"); }}>
                             Accéder aux paramètres <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>

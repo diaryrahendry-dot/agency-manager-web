@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router, supervisorProcedure } from "./_core/trpc";
 import { COOKIE_NAME } from "@shared/const";
@@ -9,7 +9,7 @@ import {
   agents, timeEntries, leaves, salaryAdvances, contracts, 
   tickets, cashTransactions, leads, clients, clientInteractions, documents, 
   quotes, invoices, creditNotes, catalogItems, dynamicStats, budgetSheets, users, agencyProjects, projectMembers,
-  rolePermissions, supervisorTeams
+  rolePermissions, supervisorTeams, projectInvitations
 } from "../drizzle/schema";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { storagePut } from "./storage";
@@ -25,6 +25,27 @@ function dateKey(value: string | Date | null | undefined) {
 function amountOf(value: unknown) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
+}
+
+function hashInvitationToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function normalizeFrontendOrigin(origin: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new Error("L’origine de l’application est invalide");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("L’origine de l’application doit utiliser HTTP ou HTTPS");
+  }
+  return parsed.origin;
+}
+
+function buildInvitationUrl(origin: string, token: string) {
+  return `${normalizeFrontendOrigin(origin)}/invite/${encodeURIComponent(token)}`;
 }
 
 function normalizedLeaveType(value: unknown) {
@@ -1908,6 +1929,7 @@ export const appRouter = router({
       agencyName: z.string().trim().min(2, "Le nom de l’agence est obligatoire"),
       clientContactName: z.string().trim().min(2, "Le nom du contact client est obligatoire"),
       clientEmail: z.string().trim().email("L’email du client est invalide"),
+      origin: z.string().trim().min(1, "L’origine de l’application est obligatoire"),
       managementTemplate: z.enum(PROJECT_TEMPLATE_KEYS).default("agence_complete"),
       defaultCurrency: z.enum(["EUR", "MGA"]).default("MGA"),
       jurisdiction: z.enum(["fr", "mg"]).default("fr"),
@@ -1915,30 +1937,28 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const database = await db.getDb();
       if (!database) throw new Error("Database unavailable");
+      const clientEmail = input.clientEmail.trim().toLowerCase();
       const slug = input.agencyName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
       const duplicate = await database.select({ id: agencyProjects.id }).from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
       if (duplicate.length > 0) throw new Error("Un environnement existe déjà avec ce nom");
 
-      let [clientUser] = await database.select().from(users).where(eq(users.email, input.clientEmail)).limit(1);
+      let [clientUser] = await database.select().from(users).where(eq(users.email, clientEmail)).limit(1);
       if (!clientUser) {
-        const openId = `client:${Date.now()}:${input.clientEmail}`;
-        const invitationToken = randomUUID();
         await database.insert(users).values({
-          openId,
+          openId: "client:" + Date.now() + ":" + clientEmail,
           name: input.clientContactName,
-          email: input.clientEmail,
+          email: clientEmail,
           loginMethod: "provider_invite",
           role: "superviseur",
           accountStatus: "invited",
-          invitationToken,
         } as any);
-        [clientUser] = await database.select().from(users).where(eq(users.email, input.clientEmail)).limit(1);
+        [clientUser] = await database.select().from(users).where(eq(users.email, clientEmail)).limit(1);
       }
 
       await database.insert(agencyProjects).values({
         name: input.agencyName,
         slug,
-        description: `Environnement client administré pour ${input.clientContactName} (${input.clientEmail})`,
+        description: "Environnement client administré pour " + input.clientContactName + " (" + clientEmail + ")",
         managementTemplate: input.managementTemplate,
         defaultCurrency: input.defaultCurrency,
         jurisdiction: input.jurisdiction,
@@ -1946,15 +1966,97 @@ export const appRouter = router({
       } as any);
 
       const [createdProj] = await database.select().from(agencyProjects).where(eq(agencyProjects.slug, slug)).limit(1);
-      if (createdProj && clientUser) {
-        await database.insert(projectMembers).values({
-          projectId: createdProj.id,
-          userId: clientUser.id,
-          membershipRole: input.assignAsAdmin ? "admin" : "superviseur",
-        } as any);
-      }
+      if (!createdProj || !clientUser) throw new Error("Impossible de créer l’espace client");
+      await database.insert(projectMembers).values({
+        projectId: createdProj.id,
+        userId: clientUser.id,
+        membershipRole: input.assignAsAdmin ? "admin" : "superviseur",
+      } as any);
 
-      return { success: true, projectId: createdProj?.id, slug };
+      const invitationToken = randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await database.insert(projectInvitations).values({
+        projectId: createdProj.id,
+        userId: clientUser.id,
+        invitedEmail: clientEmail,
+        tokenHash: hashInvitationToken(invitationToken),
+        status: "pending",
+        expiresAt,
+        createdBy: ctx.user.id,
+      } as any);
+      return {
+        success: true,
+        projectId: createdProj.id,
+        projectName: createdProj.name,
+        slug,
+        clientEmail,
+        accessUrl: buildInvitationUrl(input.origin, invitationToken),
+        expiresAt,
+      };
+    }),
+    getInvitation: publicProcedure.input(z.object({ token: z.string().trim().min(20) })).query(async ({ input }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const [invitation] = await database.select({
+        id: projectInvitations.id,
+        projectId: projectInvitations.projectId,
+        invitedEmail: projectInvitations.invitedEmail,
+        status: projectInvitations.status,
+        expiresAt: projectInvitations.expiresAt,
+        projectName: agencyProjects.name,
+      }).from(projectInvitations).innerJoin(agencyProjects, eq(projectInvitations.projectId, agencyProjects.id)).where(eq(projectInvitations.tokenHash, hashInvitationToken(input.token))).limit(1);
+      if (!invitation) throw new Error("Lien d’accès introuvable");
+      if (invitation.status !== "pending") throw new Error("Ce lien d’accès a déjà été utilisé ou révoqué");
+      if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+        await database.update(projectInvitations).set({ status: "expired" } as any).where(eq(projectInvitations.id, invitation.id));
+        throw new Error("Ce lien d’accès a expiré");
+      }
+      return { projectId: invitation.projectId, projectName: invitation.projectName, invitedEmail: invitation.invitedEmail, expiresAt: invitation.expiresAt };
+    }),
+    acceptInvitation: protectedProcedure.input(z.object({ token: z.string().trim().min(20) })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const [invitation] = await database.select().from(projectInvitations).where(eq(projectInvitations.tokenHash, hashInvitationToken(input.token))).limit(1);
+      if (!invitation) throw new Error("Lien d’accès introuvable");
+      if (invitation.status !== "pending") throw new Error("Ce lien d’accès a déjà été utilisé ou révoqué");
+      if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+        await database.update(projectInvitations).set({ status: "expired" } as any).where(eq(projectInvitations.id, invitation.id));
+        throw new Error("Ce lien d’accès a expiré");
+      }
+      if (!ctx.user.email || ctx.user.email.trim().toLowerCase() !== invitation.invitedEmail.trim().toLowerCase()) {
+        throw new Error("Connectez-vous avec l’adresse email invitée");
+      }
+      const [membership] = await database.select({ id: projectMembers.id }).from(projectMembers).where(and(eq(projectMembers.projectId, invitation.projectId), eq(projectMembers.userId, ctx.user.id))).limit(1);
+      if (!membership) {
+        await database.insert(projectMembers).values({ projectId: invitation.projectId, userId: ctx.user.id, membershipRole: "admin" } as any);
+      }
+      await database.update(projectInvitations).set({ status: "accepted", acceptedAt: new Date() } as any).where(eq(projectInvitations.id, invitation.id));
+      await database.update(users).set({ activeProjectId: invitation.projectId, accountStatus: "active" } as any).where(eq(users.id, ctx.user.id));
+      return { success: true, projectId: invitation.projectId };
+    }),
+    resendClientInvitation: adminProcedure.input(z.object({
+      projectId: z.number().int().positive(),
+      origin: z.string().trim().min(1, "L’origine de l’application est obligatoire"),
+    })).mutation(async ({ input, ctx }) => {
+      const database = await db.getDb();
+      if (!database) throw new Error("Database unavailable");
+      const [project] = await database.select({ id: agencyProjects.id, name: agencyProjects.name }).from(agencyProjects).where(eq(agencyProjects.id, input.projectId)).limit(1);
+      if (!project) throw new Error("Espace client introuvable");
+      const [member] = await database.select({ userId: projectMembers.userId, email: users.email }).from(projectMembers).innerJoin(users, eq(projectMembers.userId, users.id)).where(and(eq(projectMembers.projectId, input.projectId), or(eq(projectMembers.membershipRole, "admin"), eq(projectMembers.membershipRole, "superviseur")))).limit(1);
+      if (!member?.userId || !member.email) throw new Error("Aucun compte client rattaché à cet espace");
+      await database.update(projectInvitations).set({ status: "revoked" } as any).where(and(eq(projectInvitations.projectId, input.projectId), eq(projectInvitations.status, "pending")));
+      const token = randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await database.insert(projectInvitations).values({
+        projectId: input.projectId,
+        userId: member.userId,
+        invitedEmail: member.email.trim().toLowerCase(),
+        tokenHash: hashInvitationToken(token),
+        status: "pending",
+        expiresAt,
+        createdBy: ctx.user.id,
+      } as any);
+      return { success: true, projectName: project.name, clientEmail: member.email.trim().toLowerCase(), accessUrl: buildInvitationUrl(input.origin, token), expiresAt };
     }),
     toggleEnvironmentLock: adminProcedure.input(z.object({
       projectId: z.number().int().positive(),
